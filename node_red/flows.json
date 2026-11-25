@@ -14,7 +14,10 @@
         "path": "/dashboard",
         "appIcon": "",
         "includeClientData": true,
-        "acceptsClientConfig": ["ui-notification", "ui-control"],
+        "acceptsClientConfig": [
+            "ui-notification",
+            "ui-control"
+        ],
         "showPathInSidebar": false,
         "headerContent": "page",
         "navigationStyle": "default",
@@ -53,10 +56,26 @@
         "layout": "grid",
         "theme": "f321032e95830ca3",
         "breakpoints": [
-            {"name": "Default", "px": 0, "cols": 3},
-            {"name": "Tablet", "px": 576, "cols": 6},
-            {"name": "Small Desktop", "px": 768, "cols": 12},
-            {"name": "Desktop", "px": 1024, "cols": 12}
+            {
+                "name": "Default",
+                "px": 0,
+                "cols": 3
+            },
+            {
+                "name": "Tablet",
+                "px": 576,
+                "cols": 6
+            },
+            {
+                "name": "Small Desktop",
+                "px": 768,
+                "cols": 12
+            },
+            {
+                "name": "Desktop",
+                "px": 1024,
+                "cols": 12
+            }
         ],
         "tabs": [],
         "order": 1,
@@ -87,9 +106,11 @@
         "height": 5,
         "order": 1,
         "showTitle": true,
+        "className": "",
         "visible": true,
         "disabled": false,
-        "groupType": "default"
+        "groupType": "default",
+        "tab": ""
     },
     {
         "id": "542f0547fe6e7f6a",
@@ -100,9 +121,11 @@
         "height": 2,
         "order": 2,
         "showTitle": true,
+        "className": "",
         "visible": "true",
         "disabled": "false",
-        "groupType": "default"
+        "groupType": "default",
+        "tab": ""
     },
     {
         "id": "d9cd761a04ee5710",
@@ -113,9 +136,11 @@
         "height": 4,
         "order": 3,
         "showTitle": true,
+        "className": "",
         "visible": "true",
         "disabled": "false",
-        "groupType": "default"
+        "groupType": "default",
+        "tab": ""
     },
     {
         "id": "robot-camera-group",
@@ -126,9 +151,11 @@
         "height": 1,
         "order": 4,
         "showTitle": true,
+        "className": "",
         "visible": true,
         "disabled": false,
-        "groupType": "default"
+        "groupType": "default",
+        "tab": ""
     },
     {
         "id": "btn-start-follow",
@@ -140,13 +167,34 @@
         "order": 1,
         "width": 3,
         "height": 1,
+        "emulateClick": false,
+        "tooltip": "Enable autonomous person framing and tracking.",
+        "color": "",
+        "bgcolor": "",
+        "className": "",
+        "icon": "",
+        "iconPosition": "left",
         "payload": "{\"data\": \"start_follower\"}",
         "payloadType": "json",
+        "topic": "topic",
+        "topicType": "msg",
         "buttonColor": "#1b8a5a",
+        "textColor": "",
+        "iconColor": "",
         "enableClick": true,
+        "enablePointerdown": false,
+        "pointerdownPayload": "",
+        "pointerdownPayloadType": "str",
+        "enablePointerup": false,
+        "pointerupPayload": "",
+        "pointerupPayloadType": "str",
         "x": 140,
         "y": 100,
-        "wires": [["0687a04eb3ee1f5b"]]
+        "wires": [
+            [
+                "0687a04eb3ee1f5b"
+            ]
+        ]
     },
     {
         "id": "btn-pause-follow",
@@ -158,13 +206,34 @@
         "order": 2,
         "width": 3,
         "height": 1,
+        "emulateClick": false,
+        "tooltip": "Pause autonomous robot movement.",
+        "color": "",
+        "bgcolor": "",
+        "className": "",
+        "icon": "",
+        "iconPosition": "left",
         "payload": "{\"data\": \"stop_follower\"}",
         "payloadType": "json",
+        "topic": "topic",
+        "topicType": "msg",
         "buttonColor": "#52616b",
+        "textColor": "",
+        "iconColor": "",
         "enableClick": true,
+        "enablePointerdown": false,
+        "pointerdownPayload": "",
+        "pointerdownPayloadType": "str",
+        "enablePointerup": false,
+        "pointerupPayload": "",
+        "pointerupPayloadType": "str",
         "x": 140,
         "y": 140,
-        "wires": [["0687a04eb3ee1f5b"]]
+        "wires": [
+            [
+                "0687a04eb3ee1f5b"
+            ]
+        ]
     },
     {
         "id": "59825b1fdfc8a0fd",
@@ -176,13 +245,34 @@
         "order": 3,
         "width": 3,
         "height": 1,
+        "emulateClick": false,
+        "tooltip": "Begin left elbow flexion exercise.",
+        "color": "",
+        "bgcolor": "",
+        "className": "",
+        "icon": "",
+        "iconPosition": "left",
         "payload": "{\"data\": \"left_elbow_flexion\"}",
         "payloadType": "json",
+        "topic": "topic",
+        "topicType": "msg",
         "buttonColor": "#0d74ce",
+        "textColor": "",
+        "iconColor": "",
         "enableClick": true,
+        "enablePointerdown": false,
+        "pointerdownPayload": "",
+        "pointerdownPayloadType": "str",
+        "enablePointerup": false,
+        "pointerupPayload": "",
+        "pointerupPayloadType": "str",
         "x": 120,
         "y": 200,
-        "wires": [["0687a04eb3ee1f5b"]]
+        "wires": [
+            [
+                "0687a04eb3ee1f5b"
+            ]
+        ]
     },
     {
         "id": "btn-right-elbow",
@@ -194,13 +284,34 @@
         "order": 4,
         "width": 3,
         "height": 1,
+        "emulateClick": false,
+        "tooltip": "Begin right elbow flexion exercise.",
+        "color": "",
+        "bgcolor": "",
+        "className": "",
+        "icon": "",
+        "iconPosition": "left",
         "payload": "{\"data\": \"right_elbow_flexion\"}",
         "payloadType": "json",
+        "topic": "topic",
+        "topicType": "msg",
         "buttonColor": "#0d74ce",
+        "textColor": "",
+        "iconColor": "",
         "enableClick": true,
+        "enablePointerdown": false,
+        "pointerdownPayload": "",
+        "pointerdownPayloadType": "str",
+        "enablePointerup": false,
+        "pointerupPayload": "",
+        "pointerupPayloadType": "str",
         "x": 120,
         "y": 240,
-        "wires": [["0687a04eb3ee1f5b"]]
+        "wires": [
+            [
+                "0687a04eb3ee1f5b"
+            ]
+        ]
     },
     {
         "id": "btn-shoulder-raise",
@@ -212,13 +323,34 @@
         "order": 5,
         "width": 3,
         "height": 1,
+        "emulateClick": false,
+        "tooltip": "Begin seated shoulder abduction exercise.",
+        "color": "",
+        "bgcolor": "",
+        "className": "",
+        "icon": "",
+        "iconPosition": "left",
         "payload": "{\"data\": \"shoulder_abduction\"}",
         "payloadType": "json",
+        "topic": "topic",
+        "topicType": "msg",
         "buttonColor": "#0d74ce",
+        "textColor": "",
+        "iconColor": "",
         "enableClick": true,
+        "enablePointerdown": false,
+        "pointerdownPayload": "",
+        "pointerdownPayloadType": "str",
+        "enablePointerup": false,
+        "pointerupPayload": "",
+        "pointerupPayloadType": "str",
         "x": 130,
         "y": 280,
-        "wires": [["0687a04eb3ee1f5b"]]
+        "wires": [
+            [
+                "0687a04eb3ee1f5b"
+            ]
+        ]
     },
     {
         "id": "btn-core-lean",
@@ -230,13 +362,34 @@
         "order": 6,
         "width": 3,
         "height": 1,
+        "emulateClick": false,
+        "tooltip": "Begin seated core reach exercise.",
+        "color": "",
+        "bgcolor": "",
+        "className": "",
+        "icon": "",
+        "iconPosition": "left",
         "payload": "{\"data\": \"seated_core_lean\"}",
         "payloadType": "json",
+        "topic": "topic",
+        "topicType": "msg",
         "buttonColor": "#0d74ce",
+        "textColor": "",
+        "iconColor": "",
         "enableClick": true,
+        "enablePointerdown": false,
+        "pointerdownPayload": "",
+        "pointerdownPayloadType": "str",
+        "enablePointerup": false,
+        "pointerupPayload": "",
+        "pointerupPayloadType": "str",
         "x": 130,
         "y": 320,
-        "wires": [["0687a04eb3ee1f5b"]]
+        "wires": [
+            [
+                "0687a04eb3ee1f5b"
+            ]
+        ]
     },
     {
         "id": "btn-suggest-routine",
@@ -248,13 +401,34 @@
         "order": 7,
         "width": 3,
         "height": 1,
+        "emulateClick": false,
+        "tooltip": "Ask Gemini AI coach to suggest a personalized rehab routine.",
+        "color": "",
+        "bgcolor": "",
+        "className": "",
+        "icon": "",
+        "iconPosition": "left",
         "payload": "{\"data\": \"suggest_routine\"}",
         "payloadType": "json",
+        "topic": "topic",
+        "topicType": "msg",
         "buttonColor": "#7c3aed",
+        "textColor": "",
+        "iconColor": "",
         "enableClick": true,
+        "enablePointerdown": false,
+        "pointerdownPayload": "",
+        "pointerdownPayloadType": "str",
+        "enablePointerup": false,
+        "pointerupPayload": "",
+        "pointerupPayloadType": "str",
         "x": 140,
         "y": 360,
-        "wires": [["0687a04eb3ee1f5b"]]
+        "wires": [
+            [
+                "0687a04eb3ee1f5b"
+            ]
+        ]
     },
     {
         "id": "btn-more-details",
@@ -266,13 +440,34 @@
         "order": 8,
         "width": 3,
         "height": 1,
+        "emulateClick": false,
+        "tooltip": "Ask Gemini AI coach for form tips and more details.",
+        "color": "",
+        "bgcolor": "",
+        "className": "",
+        "icon": "",
+        "iconPosition": "left",
         "payload": "{\"data\": \"more_details\"}",
         "payloadType": "json",
+        "topic": "topic",
+        "topicType": "msg",
         "buttonColor": "#7c3aed",
+        "textColor": "",
+        "iconColor": "",
         "enableClick": true,
+        "enablePointerdown": false,
+        "pointerdownPayload": "",
+        "pointerdownPayloadType": "str",
+        "enablePointerup": false,
+        "pointerupPayload": "",
+        "pointerupPayloadType": "str",
         "x": 140,
         "y": 400,
-        "wires": [["0687a04eb3ee1f5b"]]
+        "wires": [
+            [
+                "0687a04eb3ee1f5b"
+            ]
+        ]
     },
     {
         "id": "713444d5e6da2805",
@@ -284,13 +479,34 @@
         "order": 9,
         "width": 6,
         "height": 1,
+        "emulateClick": false,
+        "tooltip": "Stop current exercise immediately.",
+        "color": "",
+        "bgcolor": "",
+        "className": "",
+        "icon": "",
+        "iconPosition": "left",
         "payload": "{\"data\": \"no_game\"}",
         "payloadType": "json",
+        "topic": "topic",
+        "topicType": "msg",
         "buttonColor": "#d93025",
+        "textColor": "",
+        "iconColor": "",
         "enableClick": true,
+        "enablePointerdown": false,
+        "pointerdownPayload": "",
+        "pointerdownPayloadType": "str",
+        "enablePointerup": false,
+        "pointerupPayload": "",
+        "pointerupPayloadType": "str",
         "x": 140,
         "y": 440,
-        "wires": [["0687a04eb3ee1f5b"]]
+        "wires": [
+            [
+                "0687a04eb3ee1f5b"
+            ]
+        ]
     },
     {
         "id": "0687a04eb3ee1f5b",
@@ -329,7 +545,11 @@
         "offvalueType": "bool",
         "x": 140,
         "y": 490,
-        "wires": [["fn-wrap-bool"]]
+        "wires": [
+            [
+                "fn-wrap-bool"
+            ]
+        ]
     },
     {
         "id": "fn-wrap-bool",
@@ -340,7 +560,11 @@
         "outputs": 1,
         "x": 320,
         "y": 490,
-        "wires": [["pub-mic-active"]]
+        "wires": [
+            [
+                "pub-mic-active"
+            ]
+        ]
     },
     {
         "id": "pub-mic-active",
@@ -371,17 +595,33 @@
         "qosDepth": 10,
         "x": 160,
         "y": 560,
-        "wires": [["0931ac2f98ed98fa"]]
+        "wires": [
+            [
+                "0931ac2f98ed98fa"
+            ]
+        ]
     },
     {
         "id": "0931ac2f98ed98fa",
         "type": "change",
         "z": "c3799b409478841a",
         "name": "Extract angle number",
-        "rules": [{"t": "set", "p": "payload", "pt": "msg", "to": "payload.data", "tot": "msg"}],
+        "rules": [
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "payload.data",
+                "tot": "msg"
+            }
+        ],
         "x": 380,
         "y": 560,
-        "wires": [["58aa4176c38a277e"]]
+        "wires": [
+            [
+                "58aa4176c38a277e"
+            ]
+        ]
     },
     {
         "id": "58aa4176c38a277e",
@@ -398,7 +638,14 @@
         "gstyle": "needle",
         "title": "Active Joint Angle",
         "units": "degrees",
-        "segments": [{"from": "0", "color": "#0d74ce", "text": "", "textType": "label"}],
+        "segments": [
+            {
+                "from": "0",
+                "color": "#0d74ce",
+                "text": "",
+                "textType": "label"
+            }
+        ],
         "min": 0,
         "max": 180,
         "sizeThickness": 16,
@@ -419,17 +666,33 @@
         "rosType": "std_msgs/msg/String",
         "x": 140,
         "y": 620,
-        "wires": [["chg-rep-status"]]
+        "wires": [
+            [
+                "chg-rep-status"
+            ]
+        ]
     },
     {
         "id": "chg-rep-status",
         "type": "change",
         "z": "c3799b409478841a",
         "name": "Extract string",
-        "rules": [{"t": "set", "p": "payload", "pt": "msg", "to": "payload.data", "tot": "msg"}],
+        "rules": [
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "payload.data",
+                "tot": "msg"
+            }
+        ],
         "x": 340,
         "y": 620,
-        "wires": [["txt-rep-status"]]
+        "wires": [
+            [
+                "txt-rep-status"
+            ]
+        ]
     },
     {
         "id": "txt-rep-status",
@@ -457,17 +720,33 @@
         "rosType": "std_msgs/msg/String",
         "x": 150,
         "y": 680,
-        "wires": [["chg-coach-msg"]]
+        "wires": [
+            [
+                "chg-coach-msg"
+            ]
+        ]
     },
     {
         "id": "chg-coach-msg",
         "type": "change",
         "z": "c3799b409478841a",
         "name": "Extract coach text",
-        "rules": [{"t": "set", "p": "payload", "pt": "msg", "to": "payload.data", "tot": "msg"}],
+        "rules": [
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "payload.data",
+                "tot": "msg"
+            }
+        ],
         "x": 350,
         "y": 680,
-        "wires": [["txt-coach-msg"]]
+        "wires": [
+            [
+                "txt-coach-msg"
+            ]
+        ]
     },
     {
         "id": "txt-coach-msg",
@@ -495,17 +774,33 @@
         "rosType": "std_msgs/msg/String",
         "x": 150,
         "y": 730,
-        "wires": [["chg-coach-warn"]]
+        "wires": [
+            [
+                "chg-coach-warn"
+            ]
+        ]
     },
     {
         "id": "chg-coach-warn",
         "type": "change",
         "z": "c3799b409478841a",
         "name": "Extract warning",
-        "rules": [{"t": "set", "p": "payload", "pt": "msg", "to": "payload.data", "tot": "msg"}],
+        "rules": [
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "payload.data",
+                "tot": "msg"
+            }
+        ],
         "x": 350,
         "y": 730,
-        "wires": [["txt-coach-warn"]]
+        "wires": [
+            [
+                "txt-coach-warn"
+            ]
+        ]
     },
     {
         "id": "txt-coach-warn",
@@ -536,7 +831,12 @@
         "qos": "auto",
         "x": 160,
         "y": 800,
-        "wires": [["elbow-show-frame", "elbow-frame-timeout"]]
+        "wires": [
+            [
+                "elbow-show-frame",
+                "elbow-frame-timeout"
+            ]
+        ]
     },
     {
         "id": "elbow-frame-timeout",
@@ -552,7 +852,11 @@
         "units": "s",
         "x": 420,
         "y": 850,
-        "wires": [["elbow-show-frame"]]
+        "wires": [
+            [
+                "elbow-show-frame"
+            ]
+        ]
     },
     {
         "id": "elbow-show-frame",
@@ -563,7 +867,11 @@
         "outputs": 1,
         "x": 440,
         "y": 800,
-        "wires": [["elbow-camera-view"]]
+        "wires": [
+            [
+                "elbow-camera-view"
+            ]
+        ]
     },
     {
         "id": "elbow-camera-view",
@@ -581,6 +889,17 @@
         "wires": []
     },
     {
+        "id": "spacer-drive-tl",
+        "type": "ui-spacer",
+        "group": "542f0547fe6e7f6a",
+        "name": "spacer",
+        "tooltip": "",
+        "order": 1,
+        "width": "2",
+        "height": 1,
+        "className": ""
+    },
+    {
         "id": "35102aa20411b49e",
         "type": "ui-button",
         "z": "c3799b409478841a",
@@ -590,6 +909,20 @@
         "order": 2,
         "width": 2,
         "height": 1,
+        "emulateClick": false,
+        "tooltip": "",
+        "color": "",
+        "bgcolor": "",
+        "className": "",
+        "icon": "",
+        "iconPosition": "left",
+        "payload": "",
+        "payloadType": "str",
+        "topic": "topic",
+        "topicType": "msg",
+        "buttonColor": "",
+        "textColor": "",
+        "iconColor": "",
         "enableClick": false,
         "enablePointerdown": true,
         "pointerdownPayload": "forward",
@@ -599,28 +932,22 @@
         "pointerupPayloadType": "str",
         "x": 100,
         "y": 930,
-        "wires": [["b911b98705640207"]]
+        "wires": [
+            [
+                "b911b98705640207"
+            ]
+        ]
     },
     {
-        "id": "83eab3b96d437c08",
-        "type": "ui-button",
-        "z": "c3799b409478841a",
+        "id": "spacer-drive-tr",
+        "type": "ui-spacer",
         "group": "542f0547fe6e7f6a",
-        "name": "Reverse",
-        "label": "Reverse",
-        "order": 8,
-        "width": 2,
+        "name": "spacer",
+        "tooltip": "",
+        "order": 3,
+        "width": "2",
         "height": 1,
-        "enableClick": false,
-        "enablePointerdown": true,
-        "pointerdownPayload": "reverse",
-        "pointerdownPayloadType": "str",
-        "enablePointerup": true,
-        "pointerupPayload": "stop",
-        "pointerupPayloadType": "str",
-        "x": 100,
-        "y": 970,
-        "wires": [["b911b98705640207"]]
+        "className": ""
     },
     {
         "id": "b310c6c699c01028",
@@ -632,6 +959,20 @@
         "order": 4,
         "width": 2,
         "height": 1,
+        "emulateClick": false,
+        "tooltip": "",
+        "color": "",
+        "bgcolor": "",
+        "className": "",
+        "icon": "",
+        "iconPosition": "left",
+        "payload": "",
+        "payloadType": "str",
+        "topic": "topic",
+        "topicType": "msg",
+        "buttonColor": "",
+        "textColor": "",
+        "iconColor": "",
         "enableClick": false,
         "enablePointerdown": true,
         "pointerdownPayload": "left",
@@ -641,28 +982,11 @@
         "pointerupPayloadType": "str",
         "x": 100,
         "y": 1010,
-        "wires": [["b911b98705640207"]]
-    },
-    {
-        "id": "e813c4b5a97556a8",
-        "type": "ui-button",
-        "z": "c3799b409478841a",
-        "group": "542f0547fe6e7f6a",
-        "name": "Right",
-        "label": "Right",
-        "order": 6,
-        "width": 2,
-        "height": 1,
-        "enableClick": false,
-        "enablePointerdown": true,
-        "pointerdownPayload": "right",
-        "pointerdownPayloadType": "str",
-        "enablePointerup": true,
-        "pointerupPayload": "stop",
-        "pointerupPayloadType": "str",
-        "x": 100,
-        "y": 1050,
-        "wires": [["b911b98705640207"]]
+        "wires": [
+            [
+                "b911b98705640207"
+            ]
+        ]
     },
     {
         "id": "806aa2b370c09399",
@@ -674,12 +998,123 @@
         "order": 5,
         "width": 2,
         "height": 1,
+        "emulateClick": false,
+        "tooltip": "",
+        "color": "",
+        "bgcolor": "",
+        "className": "",
+        "icon": "",
+        "iconPosition": "left",
         "payload": "stop",
         "payloadType": "str",
+        "topic": "topic",
+        "topicType": "msg",
+        "buttonColor": "",
+        "textColor": "",
+        "iconColor": "",
         "enableClick": true,
+        "enablePointerdown": false,
+        "pointerdownPayload": "",
+        "pointerdownPayloadType": "str",
+        "enablePointerup": false,
+        "pointerupPayload": "",
+        "pointerupPayloadType": "str",
         "x": 100,
         "y": 1090,
-        "wires": [["b911b98705640207"]]
+        "wires": [
+            [
+                "b911b98705640207"
+            ]
+        ]
+    },
+    {
+        "id": "e813c4b5a97556a8",
+        "type": "ui-button",
+        "z": "c3799b409478841a",
+        "group": "542f0547fe6e7f6a",
+        "name": "Right",
+        "label": "Right",
+        "order": 6,
+        "width": 2,
+        "height": 1,
+        "emulateClick": false,
+        "tooltip": "",
+        "color": "",
+        "bgcolor": "",
+        "className": "",
+        "icon": "",
+        "iconPosition": "left",
+        "payload": "",
+        "payloadType": "str",
+        "topic": "topic",
+        "topicType": "msg",
+        "buttonColor": "",
+        "textColor": "",
+        "iconColor": "",
+        "enableClick": false,
+        "enablePointerdown": true,
+        "pointerdownPayload": "right",
+        "pointerdownPayloadType": "str",
+        "enablePointerup": true,
+        "pointerupPayload": "stop",
+        "pointerupPayloadType": "str",
+        "x": 100,
+        "y": 1050,
+        "wires": [
+            [
+                "b911b98705640207"
+            ]
+        ]
+    },
+    {
+        "id": "spacer-drive-bl",
+        "type": "ui-spacer",
+        "group": "542f0547fe6e7f6a",
+        "name": "spacer",
+        "tooltip": "",
+        "order": 7,
+        "width": "2",
+        "height": 1,
+        "className": ""
+    },
+    {
+        "id": "83eab3b96d437c08",
+        "type": "ui-button",
+        "z": "c3799b409478841a",
+        "group": "542f0547fe6e7f6a",
+        "name": "Reverse",
+        "label": "Reverse",
+        "order": 8,
+        "width": 2,
+        "height": 1,
+        "emulateClick": false,
+        "tooltip": "",
+        "color": "",
+        "bgcolor": "",
+        "className": "",
+        "icon": "",
+        "iconPosition": "left",
+        "payload": "",
+        "payloadType": "str",
+        "topic": "topic",
+        "topicType": "msg",
+        "buttonColor": "",
+        "textColor": "",
+        "iconColor": "",
+        "enableClick": false,
+        "enablePointerdown": true,
+        "pointerdownPayload": "reverse",
+        "pointerdownPayloadType": "str",
+        "enablePointerup": true,
+        "pointerupPayload": "stop",
+        "pointerupPayloadType": "str",
+        "x": 100,
+        "y": 970,
+        "wires": [
+            [
+                "b911b98705640207"
+            ]
+        ]
     },
     {
         "id": "b911b98705640207",
@@ -690,7 +1125,11 @@
         "outputs": 1,
         "x": 280,
         "y": 1010,
-        "wires": [["manual-drive-pub"]]
+        "wires": [
+            [
+                "manual-drive-pub"
+            ]
+        ]
     },
     {
         "id": "manual-drive-pub",

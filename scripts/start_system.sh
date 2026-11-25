@@ -38,10 +38,15 @@ set +u
 source /opt/ros/jazzy/setup.bash
 source "$WS_DIR/install/setup.bash"
 
+PI_KILL_CMD="pkill -9 -f 'robot_bringup|servo_node|usb_cam_node_exe|robot_pid_controller_node|mic_node|turtlebot3_ros|single_coin_d4_node' 2>/dev/null || true"
+
 cleanup() {
     echo ""
     echo "[TrainerBot] Shutting down Laptop Brain and Node-RED..."
     kill "${BRAIN_PID:-}" "${NODERED_PID:-}" "${ROBOT_SSH_PID:-}" 2>/dev/null || true
+    if ssh -o BatchMode=yes -o ConnectTimeout=2 "${ROBOT_USER}@${ROBOT_IP}" true >/dev/null 2>&1; then
+        ssh -o BatchMode=yes -o ConnectTimeout=2 "${ROBOT_USER}@${ROBOT_IP}" "$PI_KILL_CMD" >/dev/null 2>&1 || true
+    fi
 }
 trap cleanup EXIT INT TERM
 
@@ -52,6 +57,8 @@ echo "============================================================"
 echo "[1/3] Checking SSH to TurtleBot3 ($ROBOT_USER@$ROBOT_IP)..."
 PI_CMD="set +u; export AMENT_TRACE_SETUP_FILES=\${AMENT_TRACE_SETUP_FILES:-}; LDS_LINE=\$(grep -E '^[[:space:]]*export[[:space:]]+LDS_MODEL=' ~/.bashrc 2>/dev/null | tail -n1); [ -n \"\$LDS_LINE\" ] && eval \"\$LDS_LINE\"; export LDS_MODEL=\${LDS_MODEL:-LDS-02}; source /opt/ros/jazzy/setup.bash && source ~/turtlebot3_ws/install/setup.bash && export ROS_DOMAIN_ID=${ROS_DOMAIN_ID} && export TURTLEBOT3_MODEL=burger && ros2 launch trainerbot_rehab robot_bringup.launch.py"
 if ssh -o BatchMode=yes -o ConnectTimeout=3 "${ROBOT_USER}@${ROBOT_IP}" true >/dev/null 2>&1; then
+    ssh -o BatchMode=yes -o ConnectTimeout=3 "${ROBOT_USER}@${ROBOT_IP}" "$PI_KILL_CMD" >/dev/null 2>&1 || true
+    sleep 1
     ssh -t "${ROBOT_USER}@${ROBOT_IP}" "$PI_CMD" &
     ROBOT_SSH_PID=$!
     sleep 6
