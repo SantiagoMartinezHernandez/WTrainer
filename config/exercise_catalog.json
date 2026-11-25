@@ -1,0 +1,121 @@
+{
+  "exercises": [
+    {
+      "id": "left_elbow_flexion",
+      "legacy_alias": "elbow_game",
+      "name": "Left Elbow Flexion",
+      "goal": "Gently bend and extend your left elbow to maintain bicep and forearm mobility.",
+      "target_reps": 5,
+      "focus_joints": [11, 13, 15],
+      "joint_names": ["left_shoulder", "left_elbow", "left_wrist"],
+      "target_angle_min": 40.0,
+      "target_angle_max": 75.0,
+      "rest_angle": 145.0,
+      "framing_distance_m": 1.05,
+      "framing_tilt_offset_deg": 0.0,
+      "safety_warnings": {
+        "max_torso_tilt_deg": 18.0,
+        "min_rep_duration_s": 1.2,
+        "tilt_warning": "Try to keep your shoulders level and avoid leaning sideways.",
+        "speed_warning": "Slow down slightly for safe, controlled muscle engagement."
+      },
+      "cues": {
+        "start": "Starting Left Elbow Flexion. Keep your shoulders relaxed, bend your arm slowly toward your shoulder, and say stop anytime.",
+        "flexed": "Great reach! Now slowly lower your forearm back down.",
+        "rep_done": "Good controlled repetition.",
+        "completed": "Exercise complete! Wonderful focus on form and safety."
+      },
+      "faq": {
+        "purpose": "This exercise strengthens your left biceps and preserves elbow range of motion without straining your back.",
+        "form": "Keep your upper arm close to your side, shoulders level, and move smoothly through a comfortable range."
+      }
+    },
+    {
+      "id": "right_elbow_flexion",
+      "name": "Right Elbow Flexion",
+      "goal": "Gently bend and extend your right elbow with steady, controlled posture.",
+      "target_reps": 5,
+      "focus_joints": [12, 14, 16],
+      "joint_names": ["right_shoulder", "right_elbow", "right_wrist"],
+      "target_angle_min": 40.0,
+      "target_angle_max": 75.0,
+      "rest_angle": 145.0,
+      "framing_distance_m": 1.05,
+      "framing_tilt_offset_deg": 0.0,
+      "safety_warnings": {
+        "max_torso_tilt_deg": 18.0,
+        "min_rep_duration_s": 1.2,
+        "tilt_warning": "Keep your chest upright and avoid compensating by tilting your torso.",
+        "speed_warning": "Move smoothly and avoid rushing the return."
+      },
+      "cues": {
+        "start": "Starting Right Elbow Flexion. Sit tall and curl your right forearm slowly upward.",
+        "flexed": "Nice control! Slowly lower your arm back to the resting position.",
+        "rep_done": "Well done, smooth repetition.",
+        "completed": "Right Elbow Flexion finished safely!"
+      },
+      "faq": {
+        "purpose": "Maintains right upper-arm strength and elbow joint flexibility from a seated position.",
+        "form": "Keep your elbow tucked near your ribcage and breathe steadily."
+      }
+    },
+    {
+      "id": "shoulder_abduction",
+      "name": "Seated Shoulder Raise",
+      "goal": "Lift your left arm outward toward shoulder height to build deltoid and upper-back stability.",
+      "target_reps": 5,
+      "focus_joints": [23, 11, 13],
+      "joint_names": ["left_hip", "left_shoulder", "left_elbow"],
+      "target_angle_min": 75.0,
+      "target_angle_max": 110.0,
+      "rest_angle": 30.0,
+      "framing_distance_m": 1.25,
+      "framing_tilt_offset_deg": 5.0,
+      "safety_warnings": {
+        "max_torso_tilt_deg": 15.0,
+        "min_rep_duration_s": 1.5,
+        "tilt_warning": "Avoid shrugging or leaning sideways to lift higher; stop at a comfortable height.",
+        "speed_warning": "Lower your arm gently rather than letting it drop."
+      },
+      "cues": {
+        "start": "Starting Seated Shoulder Raise. Raise your left arm out to the side up to shoulder height, only as high as is comfortable.",
+        "flexed": "Great height! Pause briefly, then lower your arm slowly.",
+        "rep_done": "Controlled shoulder raise counted.",
+        "completed": "Shoulder raise session complete! Great posture."
+      },
+      "faq": {
+        "purpose": "Builds shoulder stability and upper-torso support important for wheelchair propulsion and transfers.",
+        "form": "Raise only up to shoulder level with your thumb pointing up or forward, keeping your neck relaxed."
+      }
+    },
+    {
+      "id": "seated_core_lean",
+      "name": "Seated Core Reach & Return",
+      "goal": "Perform a small, controlled sideways upper-body lean and return to center to engage core stabilizers.",
+      "target_reps": 4,
+      "focus_joints": [23, 11, 12],
+      "joint_names": ["left_hip", "left_shoulder", "right_shoulder"],
+      "target_angle_min": 100.0,
+      "target_angle_max": 125.0,
+      "rest_angle": 90.0,
+      "framing_distance_m": 1.30,
+      "framing_tilt_offset_deg": 0.0,
+      "safety_warnings": {
+        "max_torso_tilt_deg": 25.0,
+        "min_rep_duration_s": 1.8,
+        "tilt_warning": "Keep the lean small and controlled within your wheelchair balance zone.",
+        "speed_warning": "Move slowly so your core muscles stay engaged."
+      },
+      "cues": {
+        "start": "Starting Seated Core Reach. Make sure your wheelchair brakes are locked, gently lean slightly to the side, then return upright.",
+        "flexed": "Good core engagement! Slowly bring your shoulders back to level.",
+        "rep_done": "Safe, balanced repetition.",
+        "completed": "Core stability exercise complete!"
+      },
+      "faq": {
+        "purpose": "Trains lateral core and trunk control safely while seated.",
+        "form": "Ensure brakes are locked, keep hips planted, and only lean within a safe, pain-free angle."
+      }
+    }
+  ]
+}
