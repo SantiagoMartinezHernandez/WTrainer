@@ -98,7 +98,7 @@ espeak-ng "Speaker test ready"
    sudo apt update && sudo apt install -y ros-jazzy-rosbridge-server alsa-utils pulseaudio-utils espeak-ng nodejs npm python3-numpy
    sudo npm install -g --unsafe-perm node-red
    mkdir -p ~/.node-red && cd ~/.node-red
-   npm install @flowfuse/node-red-dashboard node-red-contrib-ros2
+   npm install @flowfuse/node-red-dashboard node-red-contrib-ros2-suite
    ```
 3. Configure your secret `.env` safely (never committed to Git):
    ```bash

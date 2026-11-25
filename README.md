@@ -55,7 +55,7 @@ pip install --break-system-packages -r requirements_laptop.txt
 
 sudo npm install -g --unsafe-perm node-red
 mkdir -p ~/.node-red && cd ~/.node-red
-npm install @flowfuse/node-red-dashboard node-red-contrib-ros2
+npm install @flowfuse/node-red-dashboard node-red-contrib-ros2-suite
 
 # 3. Create your private .env (ignored by .gitignore)
 cd ~/turtlebot3_ws/src/trainerbot_rehab
