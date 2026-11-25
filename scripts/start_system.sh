@@ -71,13 +71,15 @@ if [ -z "$NODE_RED_BIN" ]; then
 fi
 mkdir -p ~/.node-red
 cp -f "$PKG_DIR/node_red/flows.json" ~/.node-red/flows.json
-"$NODE_RED_BIN" -p 1880 -H 0.0.0.0 --userDir ~/.node-red &
+"$NODE_RED_BIN" -p 1880 --userDir ~/.node-red &
 NODERED_PID=$!
 
 echo ""
 echo "============================================================"
 echo " ALL SYSTEMS RUNNING!"
-echo " Open this URL on your PHONE or LAPTOP:"
+echo " Open on LAPTOP browser:"
+echo "   http://127.0.0.1:1880/dashboard/page1"
+echo " Open on PHONE browser (same Wi-Fi, use Windows Wi-Fi IP if WSL2):"
 echo "   http://${LAPTOP_IP}:1880/dashboard/page1"
 echo "============================================================"
 
