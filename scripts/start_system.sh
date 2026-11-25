@@ -5,7 +5,7 @@
 # 3. Starts Laptop Brain (rosbridge + PID follower + Rehab Coach + Gemini 3.8 Live)
 # 4. Starts native Node-RED on 0.0.0.0:1880 for Phone & Laptop browser access
 
-set -euo pipefail
+set -eo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PKG_DIR="$(dirname "$SCRIPT_DIR")"
