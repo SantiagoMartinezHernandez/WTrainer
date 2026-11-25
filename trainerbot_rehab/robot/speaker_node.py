@@ -9,16 +9,24 @@ are needed on the 1 GB RAM Raspberry Pi.
 """
 
 import math
+import os
 import queue
 import shutil
 import struct
 import subprocess
+import tempfile
 import threading
 import time
 
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import Bool, String, UInt8MultiArray
+
+try:
+    from gtts import gTTS
+    HAS_GTTS = True
+except ImportError:
+    HAS_GTTS = False
 
 
 def _synthesize_tone_pcm(notes: list[tuple[float, float]], sample_rate: int = 24000) -> bytes:
@@ -57,17 +65,25 @@ class SpeakerNode(Node):
         self.declare_parameter("speaker_mode", "alsa")   # 'alsa' or 'pwm_gpio' (chime test only)
         self.declare_parameter("pwm_gpio_pin", 13)       # Physical Pin 33 (avoids GPIO 18 I2S & GPIO 12 servo)
         self.declare_parameter("pcm_sample_rate", 24000)
-        self.declare_parameter("tts_voice", "en")
+        self.declare_parameter("tts_engine", "gtts")     # 'gtts' (Google UK) or 'espeak'
+        self.declare_parameter("tts_lang", "en")
+        self.declare_parameter("tts_tld", "co.uk")       # 'co.uk' = Google UK English voice
+        self.declare_parameter("tts_voice", "en-gb")     # Offline espeak-ng fallback voice
         self.declare_parameter("tts_speed", 155)
 
         self.alsa_device = str(self.get_parameter("alsa_device").value)
         self.speaker_mode = str(self.get_parameter("speaker_mode").value).lower()
         self.pwm_gpio_pin = int(self.get_parameter("pwm_gpio_pin").value)
         self.pcm_rate = int(self.get_parameter("pcm_sample_rate").value)
+        self.tts_engine = str(self.get_parameter("tts_engine").value).lower()
+        self.tts_lang = str(self.get_parameter("tts_lang").value)
+        self.tts_tld = str(self.get_parameter("tts_tld").value)
         self.tts_voice = str(self.get_parameter("tts_voice").value)
         self.tts_speed = int(self.get_parameter("tts_speed").value)
 
         self.has_aplay = shutil.which("aplay") is not None
+        self.has_ffmpeg = shutil.which("ffmpeg") is not None
+        self.has_mpg123 = shutil.which("mpg123") is not None
         self.tts_bin = shutil.which("espeak-ng") or shutil.which("espeak")
 
         self._pcm_queue: queue.Queue[bytes | None] = queue.Queue(maxsize=200)
@@ -237,28 +253,68 @@ class SpeakerNode(Node):
 
             self._set_busy(1)
             try:
-                if self.tts_bin and self.has_aplay:
-                    # Pipe espeak WAV to aplay so device selection stays consistent
-                    espeak_proc = subprocess.Popen(
-                        [self.tts_bin, "-v", self.tts_voice, "-s", str(self.tts_speed), "--stdout", text],
-                        stdout=subprocess.PIPE,
-                    )
-                    aplay_proc = subprocess.Popen(
-                        ["aplay", "-q", "-D", self.alsa_device],
-                        stdin=espeak_proc.stdout,
-                    )
-                    if espeak_proc.stdout:
-                        espeak_proc.stdout.close()
-                    aplay_proc.wait(timeout=15)
-                    espeak_proc.wait(timeout=5)
-                elif self.tts_bin:
-                    subprocess.run([self.tts_bin, "-s", str(self.tts_speed), text], timeout=15)
-                else:
-                    self.get_logger().info(f"[TTS]: {text}")
+                played_gtts = False
+                if self.tts_engine == "gtts" and HAS_GTTS and (self.has_ffmpeg or self.has_mpg123):
+                    played_gtts = self._play_gtts(text)
+
+                if not played_gtts:
+                    if self.tts_bin and self.has_aplay:
+                        espeak_proc = subprocess.Popen(
+                            [self.tts_bin, "-v", self.tts_voice, "-s", str(self.tts_speed), "--stdout", text],
+                            stdout=subprocess.PIPE,
+                        )
+                        aplay_proc = subprocess.Popen(
+                            ["aplay", "-q", "-D", self.alsa_device],
+                            stdin=espeak_proc.stdout,
+                        )
+                        if espeak_proc.stdout:
+                            espeak_proc.stdout.close()
+                        aplay_proc.wait(timeout=15)
+                        espeak_proc.wait(timeout=5)
+                    elif self.tts_bin:
+                        subprocess.run([self.tts_bin, "-v", self.tts_voice, "-s", str(self.tts_speed), text], timeout=15)
+                    else:
+                        self.get_logger().info(f"[TTS]: {text}")
             except Exception as exc:
                 self.get_logger().warn(f"TTS playback warning: {exc}")
             finally:
                 self._set_busy(-1)
+
+    def _play_gtts(self, text: str) -> bool:
+        """Speak text using Google TTS (UK English by default), returning False on offline/failure."""
+        tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
+                tmp_path = tmp.name
+            tts = gTTS(text=text, lang=self.tts_lang, tld=self.tts_tld, slow=False)
+            tts.save(tmp_path)
+
+            if self.has_mpg123:
+                subprocess.run(["mpg123", "-q", tmp_path], timeout=20, check=True)
+                return True
+            if self.has_ffmpeg and self.has_aplay:
+                ff = subprocess.Popen(
+                    ["ffmpeg", "-loglevel", "quiet", "-i", tmp_path, "-f", "s16le", "-ar", str(self.pcm_rate), "-ac", "1", "-"],
+                    stdout=subprocess.PIPE,
+                )
+                ap = subprocess.Popen(
+                    ["aplay", "-q", "-D", self.alsa_device, "-f", "S16_LE", "-r", str(self.pcm_rate), "-c", "1", "-t", "raw"],
+                    stdin=ff.stdout,
+                )
+                if ff.stdout:
+                    ff.stdout.close()
+                ap.wait(timeout=20)
+                ff.wait(timeout=5)
+                return ap.returncode == 0
+        except Exception as exc:
+            self.get_logger().warn(f"gTTS fallback to espeak ({exc})", throttle_duration_sec=5.0)
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+        return False
 
     def _pwm_worker(self):
         while not self._stop_event.is_set():

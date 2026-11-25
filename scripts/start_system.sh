@@ -71,7 +71,7 @@ if [ -z "$NODE_RED_BIN" ]; then
 fi
 mkdir -p ~/.node-red
 cp -f "$PKG_DIR/node_red/flows.json" ~/.node-red/flows.json
-"$NODE_RED_BIN" -p 1880 --userDir ~/.node-red &
+"$NODE_RED_BIN" -p 1880 --userDir ~/.node-red ~/.node-red/flows.json &
 NODERED_PID=$!
 
 echo ""
