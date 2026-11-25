@@ -82,6 +82,8 @@ class SpeakerNode(Node):
         self.tts_speed = int(self.get_parameter("tts_speed").value)
 
         self.has_aplay = shutil.which("aplay") is not None
+        self.has_paplay = shutil.which("paplay") is not None
+        self.use_pulse = bool(os.environ.get("PULSE_SERVER")) and self.has_paplay
         self.has_ffmpeg = shutil.which("ffmpeg") is not None
         self.has_mpg123 = shutil.which("mpg123") is not None
         self.tts_bin = shutil.which("espeak-ng") or shutil.which("espeak")
@@ -115,7 +117,7 @@ class SpeakerNode(Node):
             self._pwm_thread.start()
 
         self.get_logger().info(
-            f"speaker_node ready (mode={self.speaker_mode}, device={self.alsa_device}, "
+            f"speaker_node ready (mode={self.speaker_mode}, pulse={self.use_pulse}, device={self.alsa_device}, "
             f"pwm_pin=GPIO{self.pwm_gpio_pin}, aplay={self.has_aplay}, tts={self.tts_bin})"
         )
 
@@ -202,6 +204,12 @@ class SpeakerNode(Node):
         self.busy_pub.publish(Bool(data=False))
 
     def _open_aplay(self):
+        if self.use_pulse:
+            cmd = [
+                "paplay", "--raw",
+                f"--rate={self.pcm_rate}", "--format=s16le", "--channels=1",
+            ]
+            return subprocess.Popen(cmd, stdin=subprocess.PIPE)
         if not self.has_aplay:
             return None
         cmd = [
@@ -258,18 +266,16 @@ class SpeakerNode(Node):
                     played_gtts = self._play_gtts(text)
 
                 if not played_gtts:
-                    if self.tts_bin and self.has_aplay:
+                    if self.tts_bin and (self.use_pulse or self.has_aplay):
                         espeak_proc = subprocess.Popen(
                             [self.tts_bin, "-v", self.tts_voice, "-s", str(self.tts_speed), "--stdout", text],
                             stdout=subprocess.PIPE,
                         )
-                        aplay_proc = subprocess.Popen(
-                            ["aplay", "-q", "-D", self.alsa_device],
-                            stdin=espeak_proc.stdout,
-                        )
+                        play_cmd = ["paplay"] if self.use_pulse else ["aplay", "-q", "-D", self.alsa_device]
+                        play_proc = subprocess.Popen(play_cmd, stdin=espeak_proc.stdout)
                         if espeak_proc.stdout:
                             espeak_proc.stdout.close()
-                        aplay_proc.wait(timeout=15)
+                        play_proc.wait(timeout=15)
                         espeak_proc.wait(timeout=5)
                     elif self.tts_bin:
                         subprocess.run([self.tts_bin, "-v", self.tts_voice, "-s", str(self.tts_speed), text], timeout=15)
@@ -289,23 +295,24 @@ class SpeakerNode(Node):
             tts = gTTS(text=text, lang=self.tts_lang, tld=self.tts_tld, slow=False)
             tts.save(tmp_path)
 
-            if self.has_mpg123:
-                subprocess.run(["mpg123", "-q", tmp_path], timeout=20, check=True)
-                return True
-            if self.has_ffmpeg and self.has_aplay:
+            if self.has_ffmpeg and (self.use_pulse or self.has_aplay):
                 ff = subprocess.Popen(
                     ["ffmpeg", "-loglevel", "quiet", "-i", tmp_path, "-f", "s16le", "-ar", str(self.pcm_rate), "-ac", "1", "-"],
                     stdout=subprocess.PIPE,
                 )
-                ap = subprocess.Popen(
-                    ["aplay", "-q", "-D", self.alsa_device, "-f", "S16_LE", "-r", str(self.pcm_rate), "-c", "1", "-t", "raw"],
-                    stdin=ff.stdout,
-                )
+                if self.use_pulse:
+                    play_cmd = ["paplay", "--raw", f"--rate={self.pcm_rate}", "--format=s16le", "--channels=1"]
+                else:
+                    play_cmd = ["aplay", "-q", "-D", self.alsa_device, "-f", "S16_LE", "-r", str(self.pcm_rate), "-c", "1", "-t", "raw"]
+                ap = subprocess.Popen(play_cmd, stdin=ff.stdout)
                 if ff.stdout:
                     ff.stdout.close()
                 ap.wait(timeout=20)
                 ff.wait(timeout=5)
                 return ap.returncode == 0
+            if self.has_mpg123:
+                subprocess.run(["mpg123", "-q", tmp_path], timeout=20, check=True)
+                return True
         except Exception as exc:
             self.get_logger().warn(f"gTTS fallback to espeak ({exc})", throttle_duration_sec=5.0)
         finally:

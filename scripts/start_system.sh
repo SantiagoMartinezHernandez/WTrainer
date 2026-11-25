@@ -29,7 +29,7 @@ fi
 
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-108}"
 export TURTLEBOT3_MODEL="${TURTLEBOT3_MODEL:-burger}"
-ROBOT_IP="${ROBOT_IP:-192.168.1.108}"
+ROBOT_IP="${1:-${ROBOT_IP:-192.168.1.108}}"
 ROBOT_USER="${ROBOT_USER:-ubuntu}"
 LAPTOP_IP="$(hostname -I | awk '{print $1}')"
 
@@ -49,12 +49,18 @@ echo "============================================================"
 echo " Starting TrainerBot Rehab System (ROS_DOMAIN_ID=$ROS_DOMAIN_ID)"
 echo "============================================================"
 
-echo "[1/3] Starting TurtleBot3 Robot Hardware I/O over SSH ($ROBOT_USER@$ROBOT_IP)..."
-ssh -t "${ROBOT_USER}@${ROBOT_IP}" \
-    "set +u; export AMENT_TRACE_SETUP_FILES=\${AMENT_TRACE_SETUP_FILES:-}; LDS_LINE=\$(grep -E '^[[:space:]]*export[[:space:]]+LDS_MODEL=' ~/.bashrc 2>/dev/null | tail -n1); [ -n \"\$LDS_LINE\" ] && eval \"\$LDS_LINE\"; export LDS_MODEL=\${LDS_MODEL:-LDS-02}; source /opt/ros/jazzy/setup.bash && source ~/turtlebot3_ws/install/setup.bash && export ROS_DOMAIN_ID=${ROS_DOMAIN_ID} && export TURTLEBOT3_MODEL=burger && ros2 launch trainerbot_rehab robot_bringup.launch.py" &
-ROBOT_SSH_PID=$!
-
-sleep 6
+echo "[1/3] Checking SSH to TurtleBot3 ($ROBOT_USER@$ROBOT_IP)..."
+PI_CMD="set +u; export AMENT_TRACE_SETUP_FILES=\${AMENT_TRACE_SETUP_FILES:-}; LDS_LINE=\$(grep -E '^[[:space:]]*export[[:space:]]+LDS_MODEL=' ~/.bashrc 2>/dev/null | tail -n1); [ -n \"\$LDS_LINE\" ] && eval \"\$LDS_LINE\"; export LDS_MODEL=\${LDS_MODEL:-LDS-02}; source /opt/ros/jazzy/setup.bash && source ~/turtlebot3_ws/install/setup.bash && export ROS_DOMAIN_ID=${ROS_DOMAIN_ID} && export TURTLEBOT3_MODEL=burger && ros2 launch trainerbot_rehab robot_bringup.launch.py"
+if ssh -o BatchMode=yes -o ConnectTimeout=3 "${ROBOT_USER}@${ROBOT_IP}" true >/dev/null 2>&1; then
+    ssh -t "${ROBOT_USER}@${ROBOT_IP}" "$PI_CMD" &
+    ROBOT_SSH_PID=$!
+    sleep 6
+else
+    echo "[WARN] Passwordless SSH key not set up yet for ${ROBOT_USER}@${ROBOT_IP}."
+    echo "       Run once: ssh-copy-id ${ROBOT_USER}@${ROBOT_IP}"
+    echo "       Or in a separate Pi SSH terminal, run:"
+    echo "         ros2 launch trainerbot_rehab robot_bringup.launch.py"
+fi
 
 echo "[2/3] Starting Laptop Brain (rosbridge + PID follower + Rehab Coach + Gemini Live)..."
 ros2 launch trainerbot_rehab laptop_brain.launch.py &
