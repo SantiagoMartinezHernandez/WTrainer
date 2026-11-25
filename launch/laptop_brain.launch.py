@@ -30,6 +30,13 @@ def generate_launch_description():
         parameters=[{"port": 9090, "address": "0.0.0.0"}],
     )
 
+    rosapi_node = Node(
+        package="rosapi",
+        executable="rosapi_node",
+        name="rosapi_node",
+        output="screen",
+    )
+
     vision_pose_node = Node(
         package="trainerbot_rehab",
         executable="vision_pose_node",
@@ -68,6 +75,7 @@ def generate_launch_description():
         enable_laptop_speaker_arg,
         alsa_speaker_arg,
         rosbridge_node,
+        rosapi_node,
         vision_pose_node,
         rehab_coach_node,
         gemini_live_node,

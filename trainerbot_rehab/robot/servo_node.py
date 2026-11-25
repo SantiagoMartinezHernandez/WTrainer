@@ -132,8 +132,11 @@ class SmoothServoNode(Node):
             )
             self._pwm_servo.angle = 0.0
             return True
-        except Exception:
-            pass
+        except Exception as exc:
+            self.get_logger().warn(
+                f"gpiozero PWM init failed on GPIO{self.gpio_pin}: {exc}. "
+                f"(On Ubuntu 24.04 Pi, run: sudo apt install -y python3-lgpio)"
+            )
 
         try:
             import RPi.GPIO as GPIO
@@ -142,7 +145,8 @@ class SmoothServoNode(Node):
             self._rpi_pwm = GPIO.PWM(self.gpio_pin, 50)
             self._rpi_pwm.start(7.5)
             return True
-        except Exception:
+        except Exception as exc:
+            self.get_logger().warn(f"RPi.GPIO PWM init failed on GPIO{self.gpio_pin}: {exc}")
             return False
 
     def _tilt_callback(self, msg: Float32):

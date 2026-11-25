@@ -22,6 +22,7 @@ import numpy as np
 import rclpy
 from geometry_msgs.msg import Twist, TwistStamped
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import LaserScan
 from std_msgs.msg import Bool, Float32, String
 
@@ -103,7 +104,7 @@ class RobotPIDControllerNode(Node):
             self.publish_stamped = True
 
         # Subscriptions
-        self.create_subscription(LaserScan, "/scan", self._scan_callback, 10)
+        self.create_subscription(LaserScan, "/scan", self._scan_callback, qos_profile_sensor_data)
         self.create_subscription(String, "/trainerbot/target_observation", self._observation_cb, 10)
         self.create_subscription(Bool, "/trainerbot/follow_enable", self._follow_enable_cb, 10)
         self.create_subscription(Twist, "/trainerbot/manual_drive", self._manual_drive_cb, 10)

@@ -21,6 +21,7 @@ import mediapipe as mp
 import numpy as np
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import CompressedImage
 from std_msgs.msg import Bool, Float32, String
 
@@ -62,7 +63,9 @@ class VisionPoseNode(Node):
         self.landmarks_pub = self.create_publisher(String, "/trainerbot/anonymized_landmarks", 10)
 
         # Subscriptions
-        self.create_subscription(CompressedImage, "/image_raw/compressed", self._image_callback, 10)
+        self.create_subscription(
+            CompressedImage, "/image_raw/compressed", self._image_callback, qos_profile_sensor_data
+        )
         self.create_subscription(String, "/trainerbot/active_exercise", self._exercise_config_cb, 10)
         self.create_subscription(Bool, "/trainerbot/follow_enable", self._follow_enable_cb, 10)
         self.create_subscription(Float32, "/trainerbot/person_distance", self._distance_cb, 10)
