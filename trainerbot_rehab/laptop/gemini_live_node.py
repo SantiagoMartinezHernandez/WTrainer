@@ -138,7 +138,7 @@ class GeminiLiveNode(Node):
         asyncio.run(self._session_manager())
 
     async def _session_manager(self):
-        client = genai.Client(api_key=self.api_key)
+        client = genai.Client(api_key=self.api_key, http_options={"api_version": "v1beta"})
         config = types.LiveConnectConfig(
             response_modalities=[types.Modality.AUDIO],
             input_audio_transcription=types.AudioTranscriptionConfig(),

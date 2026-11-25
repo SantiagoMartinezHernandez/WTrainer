@@ -21,7 +21,7 @@ import mediapipe as mp
 import numpy as np
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import qos_profile_sensor_data
+from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import CompressedImage
 from std_msgs.msg import Bool, Float32, String
 
@@ -49,6 +49,8 @@ class VisionPoseNode(Node):
         self.person_distance = None
         self.current_tilt = 0.0
         self.last_preview_time = 0.0
+        self._logged_first_frame = False
+        self._logged_first_person = False
 
         # MediaPipe initialization
         self.mp_mode = None
@@ -62,9 +64,14 @@ class VisionPoseNode(Node):
         self.preview_pub = self.create_publisher(String, "/trainerbot/elbow_preview", 10)
         self.landmarks_pub = self.create_publisher(String, "/trainerbot/anonymized_landmarks", 10)
 
-        # Subscriptions
+        # Subscriptions (RELIABLE depth=1 matches usb_cam and prevents fragmented JPEG drops)
+        cam_qos = QoSProfile(
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+            reliability=ReliabilityPolicy.RELIABLE,
+        )
         self.create_subscription(
-            CompressedImage, "/image_raw/compressed", self._image_callback, qos_profile_sensor_data
+            CompressedImage, "/image_raw/compressed", self._image_callback, cam_qos
         )
         self.create_subscription(String, "/trainerbot/active_exercise", self._exercise_config_cb, 10)
         self.create_subscription(Bool, "/trainerbot/follow_enable", self._follow_enable_cb, 10)
@@ -180,6 +187,9 @@ class VisionPoseNode(Node):
         frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
         if frame is None:
             return
+        if not self._logged_first_frame:
+            self._logged_first_frame = True
+            self.get_logger().info(f"Receiving camera frames ({frame.shape[1]}x{frame.shape[0]})!")
 
         h, w = frame.shape[:2]
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -195,6 +205,9 @@ class VisionPoseNode(Node):
 
             if l_vis >= self.confidence_threshold and r_vis >= self.confidence_threshold:
                 detected = True
+                if not self._logged_first_person:
+                    self._logged_first_person = True
+                    self.get_logger().info("Person detected! Streaming target observations to Pi PID.")
                 mid_x = (l_sh.x + r_sh.x) / 2.0
                 mid_y = (l_sh.y + r_sh.y) / 2.0
                 shoulder_w = abs(r_sh.x - l_sh.x)
@@ -235,12 +248,16 @@ class VisionPoseNode(Node):
             self.obs_pub.publish(String(data=json.dumps({"detected": False})))
             self.landmarks_pub.publish(String(data=json.dumps({"detected": False})))
 
-        # Publish throttled JPEG preview for Node-RED Dashboard
+        # Publish throttled, compact JPEG preview for Node-RED Dashboard
         now = time.monotonic()
         if (now - self.last_preview_time) >= self.preview_period:
             self.last_preview_time = now
             self._draw_hud(frame, detected, status_text)
-            ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 60])
+            preview = frame
+            if w > 480:
+                scale = 480.0 / w
+                preview = cv2.resize(frame, (480, int(h * scale)))
+            ok, buf = cv2.imencode(".jpg", preview, [cv2.IMWRITE_JPEG_QUALITY, 50])
             if ok:
                 payload = {
                     "status": status_text,

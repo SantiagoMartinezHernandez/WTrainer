@@ -75,8 +75,8 @@ class RehabCoachNode(Node):
         self.create_subscription(String, "/trainerbot/voice_command", self._on_voice_command, 10)
         self.create_subscription(Bool, "/trainerbot/robot_ready", self._on_robot_ready, 10)
 
-        # Startup fallback timer if robot_ready already fired before node started
-        self.create_timer(3.0, self._startup_fallback_timer)
+        # Startup fallback timer so Node-RED has time to connect before welcome text
+        self.create_timer(7.0, self._startup_fallback_timer)
         self.get_logger().info(f"rehab_coach_node ready with {len(self.catalog)} catalog exercises.")
 
     # -----------------------------------------------------------------
