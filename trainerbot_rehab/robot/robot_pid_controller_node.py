@@ -48,11 +48,11 @@ class RobotPIDControllerNode(Node):
 
         self.declare_parameter("start_following", False)
         self.declare_parameter("use_twist_stamped", True)
-        self.declare_parameter("target_distance", 1.05)
+        self.declare_parameter("target_distance", 1.40)
         self.declare_parameter("camera_hfov_deg", 60.0)
         self.declare_parameter("cluster_threshold", 0.35)
-        self.declare_parameter("min_front_safety_dist", 0.35)
-        self.declare_parameter("min_rear_safety_dist", 0.35)
+        self.declare_parameter("min_front_safety_dist", 0.90)
+        self.declare_parameter("min_rear_safety_dist", 0.40)
         self.declare_parameter("watchdog_timeout_sec", 1.8)
 
         self.follow_enabled = bool(self.get_parameter("start_following").value)
@@ -66,8 +66,8 @@ class RobotPIDControllerNode(Node):
 
         # Smooth PID controllers
         self.tilt_pid = PIDController(
-            kp=16.0, ki=1.2, kd=3.5, output_min=-4.0, output_max=4.0,
-            integral_limit=2.0, deadband=0.04, ema_alpha=0.28,
+            kp=8.0, ki=0.0, kd=0.5, output_min=-2.0, output_max=2.0,
+            integral_limit=1.0, deadband=0.10, ema_alpha=0.20,
         )
         self.yaw_pid = PIDController(
             kp=1.5, ki=0.05, kd=0.22, output_min=-0.75, output_max=0.75,
@@ -81,6 +81,7 @@ class RobotPIDControllerNode(Node):
         # State
         self.current_tilt = 0.0
         self.tilt_offset_deg = 0.0
+        self._last_published_tilt = 0.0
         self.person_detected = False
         self.target_mid_x = None
         self.target_mid_y = None
@@ -222,7 +223,10 @@ class RobotPIDControllerNode(Node):
         error_y = 0.5 - mid_y
         tilt_delta = self.tilt_pid.update(error_y, measurement=mid_y)
         self.current_tilt = max(-45.0, min(45.0, self.current_tilt + tilt_delta))
-        self.tilt_pub.publish(Float32(data=float(self.current_tilt + self.tilt_offset_deg)))
+        desired_tilt = float(self.current_tilt + self.tilt_offset_deg)
+        if abs(desired_tilt - self._last_published_tilt) >= 1.5:
+            self._last_published_tilt = desired_tilt
+            self.tilt_pub.publish(Float32(data=desired_tilt))
 
     # -----------------------------------------------------------------
     # Local LiDAR Cross-Referencing & Wall Rejection

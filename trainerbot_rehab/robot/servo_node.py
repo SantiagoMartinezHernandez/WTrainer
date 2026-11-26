@@ -41,8 +41,9 @@ class SmoothServoNode(Node):
         self.declare_parameter("min_angle", -45.0)
         self.declare_parameter("max_angle", 45.0)
         self.declare_parameter("invert_direction", False)
-        self.declare_parameter("max_deg_per_sec", 45.0)      # Smooth slew rate limit
-        self.declare_parameter("smooth_alpha", 0.25)         # EMA smoothing factor
+        self.declare_parameter("max_deg_per_sec", 30.0)      # Smooth slew rate limit
+        self.declare_parameter("smooth_alpha", 0.15)         # EMA smoothing factor
+        self.declare_parameter("detach_after_sec", 0.35)     # Detach PWM when settled to stop jitter
         self.declare_parameter("startup_selftest", True)
         self.declare_parameter("selftest_angle_deg", 25.0)
 
@@ -59,6 +60,7 @@ class SmoothServoNode(Node):
         self.invert = bool(self.get_parameter("invert_direction").value)
         self.max_deg_per_sec = max(5.0, float(self.get_parameter("max_deg_per_sec").value))
         self.smooth_alpha = max(0.05, min(1.0, float(self.get_parameter("smooth_alpha").value)))
+        self.detach_after_sec = max(0.05, float(self.get_parameter("detach_after_sec").value))
         self.startup_selftest = bool(self.get_parameter("startup_selftest").value)
         self.selftest_angle_deg = abs(float(self.get_parameter("selftest_angle_deg").value))
 
@@ -70,6 +72,8 @@ class SmoothServoNode(Node):
         self.backend = "simulated"
         self._pwm_servo = None
         self._rpi_pwm = None
+        self._pwm_detached = False
+        self._settled_since = None
         self._port_handler = None
         self._packet_handler = None
 
@@ -155,8 +159,8 @@ class SmoothServoNode(Node):
                 self.gpio_pin,
                 min_angle=self.min_angle,
                 max_angle=self.max_angle,
-                min_pulse_width=0.0005,
-                max_pulse_width=0.0025,
+                min_pulse_width=0.001,
+                max_pulse_width=0.002,
             )
             self._pwm_servo.angle = 0.0
             return True
@@ -181,7 +185,11 @@ class SmoothServoNode(Node):
         if self._selftest_phase != "DONE":
             return
         angle = max(self.min_angle, min(self.max_angle, float(msg.data)))
-        self.target_angle = -angle if self.invert else angle
+        new_target = -angle if self.invert else angle
+        if abs(new_target - self.target_angle) < 1.5:
+            return
+        self.target_angle = new_target
+        self._settled_since = None
 
     def _advance_selftest(self):
         if self._selftest_phase == "DONE":
@@ -216,6 +224,13 @@ class SmoothServoNode(Node):
                 self.get_logger().info("Servo startup self-test complete.")
                 self.selftest_done_pub.publish(Bool(data=True))
 
+    def _detach_pwm(self):
+        """Stop PWM pulses once settled so software PWM doesn't buzz the servo."""
+        if self._pwm_servo is not None:
+            self._pwm_servo.detach()
+        elif self._rpi_pwm is not None:
+            self._rpi_pwm.ChangeDutyCycle(0.0)
+
     def _update_servo_loop(self):
         self._advance_selftest()
 
@@ -228,18 +243,31 @@ class SmoothServoNode(Node):
         # 2. Slew-rate limit step size per 20 ms tick
         max_step = self.max_deg_per_sec * self.dt
         diff = self.filtered_target - self.current_angle
-        if abs(diff) <= 0.05:
+        if abs(diff) <= 0.4:
+            if (
+                self._selftest_phase == "DONE"
+                and self.backend == "pwm"
+                and abs(self.target_angle - self.current_angle) <= 0.8
+            ):
+                now = time.monotonic()
+                if self._settled_since is None:
+                    self._settled_since = now
+                elif not self._pwm_detached and (now - self._settled_since) >= self.detach_after_sec:
+                    self._detach_pwm()
+                    self._pwm_detached = True
             return
 
         step = max(-max_step, min(max_step, diff))
         self.current_angle += step
 
         # Only send hardware write if angle changed meaningfully (reduces servo chatter)
-        if self.last_written_angle is None or abs(self.current_angle - self.last_written_angle) >= 0.15:
+        if self.last_written_angle is None or abs(self.current_angle - self.last_written_angle) >= 0.6:
             self._write_hardware(self.current_angle)
             self.last_written_angle = self.current_angle
 
     def _write_hardware(self, angle_deg: float):
+        self._pwm_detached = False
+        self._settled_since = None
         if self.backend == "dynamixel" and self._packet_handler is not None:
             ticks = int(self.center_pos + angle_deg * self.ticks_per_deg)
             ticks = max(0, min(4095, ticks))

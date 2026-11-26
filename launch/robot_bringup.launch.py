@@ -28,7 +28,7 @@ def generate_launch_description():
     speaker_mode_arg = DeclareLaunchArgument("speaker_mode", default_value="alsa")
     speaker_pwm_pin_arg = DeclareLaunchArgument("speaker_pwm_pin", default_value="13")
     start_following_arg = DeclareLaunchArgument("start_following", default_value="false")
-    target_distance_arg = DeclareLaunchArgument("target_distance", default_value="1.05")
+    target_distance_arg = DeclareLaunchArgument("target_distance", default_value="1.40")
 
     turtlebot_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -72,7 +72,7 @@ def generate_launch_description():
         parameters=[{
             "servo_type": LaunchConfiguration("servo_type"),
             "gpio_pin": LaunchConfiguration("gpio_pin"),
-            "max_deg_per_sec": 45.0,
+            "max_deg_per_sec": 30.0,
         }],
     )
 

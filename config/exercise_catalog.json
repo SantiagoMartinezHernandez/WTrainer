@@ -11,7 +11,7 @@
       "target_angle_min": 40.0,
       "target_angle_max": 75.0,
       "rest_angle": 145.0,
-      "framing_distance_m": 1.05,
+      "framing_distance_m": 1.40,
       "framing_tilt_offset_deg": 0.0,
       "safety_warnings": {
         "max_torso_tilt_deg": 18.0,
@@ -40,7 +40,7 @@
       "target_angle_min": 40.0,
       "target_angle_max": 75.0,
       "rest_angle": 145.0,
-      "framing_distance_m": 1.05,
+      "framing_distance_m": 1.40,
       "framing_tilt_offset_deg": 0.0,
       "safety_warnings": {
         "max_torso_tilt_deg": 18.0,
@@ -69,7 +69,7 @@
       "target_angle_min": 75.0,
       "target_angle_max": 110.0,
       "rest_angle": 30.0,
-      "framing_distance_m": 1.25,
+      "framing_distance_m": 1.50,
       "framing_tilt_offset_deg": 5.0,
       "safety_warnings": {
         "max_torso_tilt_deg": 15.0,
@@ -98,7 +98,7 @@
       "target_angle_min": 100.0,
       "target_angle_max": 125.0,
       "rest_angle": 90.0,
-      "framing_distance_m": 1.30,
+      "framing_distance_m": 1.50,
       "framing_tilt_offset_deg": 0.0,
       "safety_warnings": {
         "max_torso_tilt_deg": 25.0,
