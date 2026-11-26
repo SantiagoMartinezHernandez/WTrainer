@@ -150,6 +150,101 @@ bash scripts/stop_system.sh <ROBOT_IP>
    - `rehab_coach_node` runs the 4-exercise rehab state machine (`config/exercise_catalog.json`), checking posture/pace warnings before counting reps.
    - `mic_node` starts **muted** (`start_active:=false`). When enabled on the dashboard, `gemini_live_node` streams transcripts to **`Heard (Mic Debug)`** (`/trainerbot/user_transcript`) and only speaks back for **`"turtle"`** / **`"trainerbot"`** wake words or button prompts. Stopping an exercise sends `/trainerbot/audio_interrupt` and `speaker_node` serializes PCM + TTS under a single speech lock so two voices never talk simultaneously.
 
+### Main Loop Architecture & Data Flow
+
+```mermaid
+flowchart LR
+    subgraph Pi["TurtleBot3 Raspberry Pi"]
+        CAM["usb_cam_node_exe"]
+        LIDAR["single_coin_d4_node (LiDAR)"]
+        BASE["turtlebot3_ros (OpenCR)"]
+        PID["robot_pid_controller_node (20 Hz PID + Safety)"]
+        SERVO["servo_node (50 Hz PWM/DXL)"]
+        MIC["mic_node (INMP441 ALSA)"]
+    end
+
+    subgraph Laptop["Laptop Brain (ROS 2 Jazzy)"]
+        VIS["vision_pose_node (MediaPipe)"]
+        COACH["rehab_coach_node (Game Loop)"]
+        GEMINI["gemini_live_node (Gemini 3.8 Live)"]
+        SPK["speaker_node (gTTS + PCM)"]
+        BRIDGE["rosbridge_websocket :9090"]
+    end
+
+    subgraph UI["Browser / Phone (:1880)"]
+        NR["Node-RED Dashboard 2.0"]
+    end
+
+    CAM -->|"/image_raw/compressed"| VIS
+    LIDAR -->|"/scan"| PID
+    VIS -->|"/trainerbot/target_observation"| PID
+    PID -->|"/cmd_vel"| BASE
+    PID -->|"/trainerbot/camera_tilt"| SERVO
+    PID -->|"/trainerbot/person_distance"| VIS
+    PID -->|"/trainerbot/robot_ready"| COACH
+    SERVO -->|"/trainerbot/servo_selftest_done"| PID
+
+    VIS -->|"/trainerbot/anonymized_landmarks"| COACH
+    VIS -->|"/trainerbot/anonymized_landmarks"| GEMINI
+    VIS -->|"/trainerbot/elbow_angle_degrees"| BRIDGE
+    VIS -->|"/trainerbot/elbow_preview"| BRIDGE
+
+    COACH -->|"/trainerbot/active_exercise"| PID
+    COACH -->|"/trainerbot/active_exercise"| VIS
+    COACH -->|"/trainerbot/follow_enable"| PID
+    COACH -->|"/trainerbot/follow_enable"| VIS
+    COACH -->|"/trainerbot/gemini_prompt"| GEMINI
+    COACH -->|"/trainerbot/tts_text & play_sound"| SPK
+    COACH -->|"/trainerbot/audio_interrupt"| SPK
+    COACH -->|"/trainerbot/rep_status, coach_message, coach_warning"| BRIDGE
+
+    MIC -->|"/trainerbot/audio_in"| GEMINI
+    GEMINI -->|"/trainerbot/audio_out & audio_interrupt"| SPK
+    GEMINI -->|"/trainerbot/voice_command"| COACH
+    GEMINI -->|"/trainerbot/coach_message & user_transcript"| BRIDGE
+    SPK -->|"/trainerbot/speaker_busy"| MIC
+
+    NR <-->|"WebSocket JSON"| BRIDGE
+    BRIDGE -->|"/trainerbot/selected_game"| COACH
+    BRIDGE -->|"/trainerbot/manual_drive"| PID
+    BRIDGE -->|"/trainerbot/mic_active"| MIC
+```
+
+### Complete ROS 2 Topic Pub/Sub Map
+
+| Topic | Type | Publisher(s) | Subscriber(s) | Purpose |
+| :--- | :--- | :--- | :--- | :--- |
+| `/image_raw/compressed` | `sensor_msgs/msg/CompressedImage` | `usb_cam_node_exe` | `vision_pose_node` | Camera frames streamed over Wi-Fi (`RELIABLE`, `depth=1`) |
+| `/scan` | `sensor_msgs/msg/LaserScan` | `single_coin_d4_node` | `robot_pid_controller_node` | Local Pi LiDAR scan (`±10°` person distance + safety clamps) |
+| `/cmd_vel` | `geometry_msgs/msg/TwistStamped` | `robot_pid_controller_node` | `turtlebot3_ros` | Final wheel velocity commands (negated when `camera_reversed:=true`) |
+| `/trainerbot/target_observation` | `std_msgs/msg/String` (JSON) | `vision_pose_node` | `robot_pid_controller_node` | Lightweight `{detected, mid_x, mid_y, shoulder_width}` for Pi PID |
+| `/trainerbot/camera_tilt` | `std_msgs/msg/Float32` | `robot_pid_controller_node` | `servo_node`, `vision_pose_node` | Y-axis camera tilt angle (Safety Grid `[0.32..0.68]`) |
+| `/trainerbot/servo_selftest_done` | `std_msgs/msg/Bool` | `servo_node` | `robot_pid_controller_node` | `TRANSIENT_LOCAL` flag after `0° → +25° → -25° → 0°` startup sweep |
+| `/trainerbot/robot_ready` | `std_msgs/msg/Bool` | `robot_pid_controller_node` | `rehab_coach_node` | Triggers startup victory chime once Pi servo self-test completes |
+| `/trainerbot/person_distance` | `std_msgs/msg/Float32` | `robot_pid_controller_node` | `vision_pose_node` | Filtered foreground LiDAR distance (m) shown on HUD |
+| `/trainerbot/user_detected` | `std_msgs/msg/Bool` | `robot_pid_controller_node` | Diagnostics / echo | Reports whether MediaPipe sees a person |
+| `/trainerbot/follow_enable` | `std_msgs/msg/Bool` | `rehab_coach_node` | `robot_pid_controller_node`, `vision_pose_node` | Enables/pauses autonomous wheel + tilt framing |
+| `/trainerbot/active_exercise` | `std_msgs/msg/String` (JSON) | `rehab_coach_node` | `vision_pose_node`, `robot_pid_controller_node` | Sends `focus_joints`, `framing_distance_m`, and `framing_tilt_offset_deg` |
+| `/trainerbot/anonymized_landmarks` | `std_msgs/msg/String` (JSON) | `vision_pose_node` | `rehab_coach_node`, `gemini_live_node` | Anonymized joint angles & torso tilt (never raw images) |
+| `/trainerbot/selected_game` | `std_msgs/msg/String` | Node-RED (`rosbridge`) | `rehab_coach_node` | Dashboard exercise buttons, PID toggle, AI buttons, and Stop |
+| `/trainerbot/load_exercise` | `std_msgs/msg/String` (JSON) | External/UI JSON | `rehab_coach_node` | Loads a custom exercise definition dynamically |
+| `/trainerbot/manual_drive` | `geometry_msgs/msg/Twist` | Node-RED (`rosbridge`) | `robot_pid_controller_node` | 0.6 s D-pad manual drive steps (`0.25 m` bump guard) |
+| `/trainerbot/elbow_angle_degrees` | `std_msgs/msg/Float32` | `vision_pose_node` | Node-RED (`rosbridge`) | 2-decimal active joint angle for the dashboard gauge |
+| `/trainerbot/elbow_preview` | `std_msgs/msg/String` (JSON) | `vision_pose_node` | Node-RED (`rosbridge`) | Base64 JPEG HUD preview with Safety Grid & skeleton overlay |
+| `/trainerbot/rep_status` | `std_msgs/msg/String` | `rehab_coach_node` | Node-RED (`rosbridge`) | Rep progress counter (e.g. `2 / 5 reps`) |
+| `/trainerbot/coach_warning` | `std_msgs/msg/String` | `rehab_coach_node` | Node-RED (`rosbridge`) | Form & pace safety feedback displayed in telemetry |
+| `/trainerbot/coach_message` | `std_msgs/msg/String` | `rehab_coach_node`, `gemini_live_node` | Node-RED (`rosbridge`) | Spoken/written coaching cues in the UI |
+| `/trainerbot/mic_active` | `std_msgs/msg/Bool` | Node-RED (`rosbridge`) | `mic_node` | Mutes/unmutes Pi INMP441 capture (starts `false`) |
+| `/trainerbot/audio_in` | `std_msgs/msg/UInt8MultiArray` | `mic_node` | `gemini_live_node` | 16 kHz mono PCM mic audio chunks (echo-gated) |
+| `/trainerbot/user_transcript` | `std_msgs/msg/String` | `gemini_live_node` | Node-RED (`rosbridge`) | Live transcript shown in `Heard (Mic Debug)` |
+| `/trainerbot/voice_command` | `std_msgs/msg/String` | `gemini_live_node` | `rehab_coach_node` | Parsed spoken commands (`stop`, `start`, `more_details`, `suggest_routine`) |
+| `/trainerbot/gemini_prompt` | `std_msgs/msg/String` | `rehab_coach_node` | `gemini_live_node` | Button-triggered coaching prompts (`Suggest Routine` / `More Details`) |
+| `/trainerbot/audio_out` | `std_msgs/msg/UInt8MultiArray` | `gemini_live_node` | `speaker_node` | 24 kHz mono PCM speech from Gemini Live |
+| `/trainerbot/tts_text` | `std_msgs/msg/String` | `rehab_coach_node` | `speaker_node` | Local Google UK `gTTS` cue (`espeak-ng` offline fallback) |
+| `/trainerbot/play_sound` | `std_msgs/msg/String` | `rehab_coach_node` | `speaker_node` | Synthesized chimes (`victory`, `rep_complete`, `warning`, `stop`) |
+| `/trainerbot/audio_interrupt` | `std_msgs/msg/Bool` | `gemini_live_node`, `rehab_coach_node` | `speaker_node` | Immediately halts active PCM speech on interruption or Stop |
+| `/trainerbot/speaker_busy` | `std_msgs/msg/Bool` | `speaker_node` | `mic_node` | Half-duplex echo gate (+ `0.35 s` holdoff after playback) |
+
 ---
 
 ## 6. Editing the UI in Node-RED (Drag & Drop) & Switching Labs/Wi-Fi
