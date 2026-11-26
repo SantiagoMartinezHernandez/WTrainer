@@ -35,7 +35,7 @@ Hold the Raspberry Pi with the **USB/Ethernet ports pointing DOWN**. **Pin 1** i
 | **MAX98357A Amp** *(with APKLVSR 3W 4Ω Speaker)* | `VIN` / `GND` | Pin 2 (`5V`) / Pin 6 (`GND`) | `5V` / `GND` | Connects 2-wire 4 Ω speaker `+`/`-` safely |
 | **MAX98357A Amp** | `BCLK` / `LRC` / `DIN` | Pin 12 / Pin 35 / Pin 40 | `GPIO 18` / `19` / `21` | Shares I2S clocks with INMP441 |
 
-> **Speaker Note:** Do **not** wire a bare 4 Ω 3 W speaker straight to the Pi's unamplified 3.5 mm jack. Until your MAX98357A is wired, [`start_bot_standalone.sh`](scripts/start_bot_standalone.sh) automatically borrows your Laptop's speakers via `laptop_speaker_node`. Once the MAX98357A is connected on the Pi, pass `pi-speaker`.
+> **Speaker Note:** We can't wire the bare 4 Ω 3 W speaker straight to the Pi's unamplified 3.5 mm jack. Until your MAX98357A arrives [`start_bot_standalone.sh`](scripts/start_bot_standalone.sh) automatically borrows the Laptop's speakers via `laptop_speaker_node`. Once the MAX98357A is connected on the Pi, we pass `pi-speaker`.
 
 ---
 
