@@ -95,6 +95,8 @@ class SpeakerNode(Node):
         self._pwm_backend = None
         self._aplay_proc = None
         self._aplay_lock = threading.Lock()
+        self._speech_lock = threading.Lock()
+        self._pcm_holds_lock = False
         self._busy_lock = threading.Lock()
         self._active_sources = 0
         self._stop_event = threading.Event()
@@ -201,6 +203,10 @@ class SpeakerNode(Node):
                 except Exception:
                     pass
                 self._aplay_proc = None
+            if self._pcm_holds_lock:
+                self._speech_lock.release()
+                self._pcm_holds_lock = False
+                self._set_busy(-1)
         self.busy_pub.publish(Bool(data=False))
 
     def _open_aplay(self):
@@ -223,7 +229,7 @@ class SpeakerNode(Node):
             try:
                 chunk = self._pcm_queue.get(timeout=0.35)
             except queue.Empty:
-                # Close idle aplay stream so speaker_busy drops cleanly
+                # Close idle aplay stream so speaker_busy & speech_lock release cleanly
                 with self._aplay_lock:
                     if self._aplay_proc is not None:
                         try:
@@ -234,16 +240,29 @@ class SpeakerNode(Node):
                             pass
                         self._aplay_proc = None
                         self._set_busy(-1)
+                    if self._pcm_holds_lock:
+                        self._speech_lock.release()
+                        self._pcm_holds_lock = False
                 continue
 
             if chunk is None:
                 break
 
             with self._aplay_lock:
+                already_holding = self._pcm_holds_lock
+            if not already_holding:
+                self._speech_lock.acquire()
+
+            with self._aplay_lock:
+                if not already_holding:
+                    self._pcm_holds_lock = True
                 if self._aplay_proc is None or self._aplay_proc.poll() is not None:
                     self._aplay_proc = self._open_aplay()
                     if self._aplay_proc is not None:
                         self._set_busy(1)
+                    elif self._pcm_holds_lock:
+                        self._speech_lock.release()
+                        self._pcm_holds_lock = False
                 if self._aplay_proc is not None and self._aplay_proc.stdin is not None:
                     try:
                         self._aplay_proc.stdin.write(chunk)
@@ -251,6 +270,9 @@ class SpeakerNode(Node):
                     except Exception:
                         self._aplay_proc = None
                         self._set_busy(-1)
+                        if self._pcm_holds_lock:
+                            self._speech_lock.release()
+                            self._pcm_holds_lock = False
 
     def _tts_worker(self):
         while not self._stop_event.is_set():
@@ -259,32 +281,33 @@ class SpeakerNode(Node):
             except queue.Empty:
                 continue
 
-            self._set_busy(1)
-            try:
-                played_gtts = False
-                if self.tts_engine == "gtts" and HAS_GTTS and (self.has_ffmpeg or self.has_mpg123):
-                    played_gtts = self._play_gtts(text)
+            with self._speech_lock:
+                self._set_busy(1)
+                try:
+                    played_gtts = False
+                    if self.tts_engine == "gtts" and HAS_GTTS and (self.has_ffmpeg or self.has_mpg123):
+                        played_gtts = self._play_gtts(text)
 
-                if not played_gtts:
-                    if self.tts_bin and (self.use_pulse or self.has_aplay):
-                        espeak_proc = subprocess.Popen(
-                            [self.tts_bin, "-v", self.tts_voice, "-s", str(self.tts_speed), "--stdout", text],
-                            stdout=subprocess.PIPE,
-                        )
-                        play_cmd = ["paplay"] if self.use_pulse else ["aplay", "-q", "-D", self.alsa_device]
-                        play_proc = subprocess.Popen(play_cmd, stdin=espeak_proc.stdout)
-                        if espeak_proc.stdout:
-                            espeak_proc.stdout.close()
-                        play_proc.wait(timeout=15)
-                        espeak_proc.wait(timeout=5)
-                    elif self.tts_bin:
-                        subprocess.run([self.tts_bin, "-v", self.tts_voice, "-s", str(self.tts_speed), text], timeout=15)
-                    else:
-                        self.get_logger().info(f"[TTS]: {text}")
-            except Exception as exc:
-                self.get_logger().warn(f"TTS playback warning: {exc}")
-            finally:
-                self._set_busy(-1)
+                    if not played_gtts:
+                        if self.tts_bin and (self.use_pulse or self.has_aplay):
+                            espeak_proc = subprocess.Popen(
+                                [self.tts_bin, "-v", self.tts_voice, "-s", str(self.tts_speed), "--stdout", text],
+                                stdout=subprocess.PIPE,
+                            )
+                            play_cmd = ["paplay"] if self.use_pulse else ["aplay", "-q", "-D", self.alsa_device]
+                            play_proc = subprocess.Popen(play_cmd, stdin=espeak_proc.stdout)
+                            if espeak_proc.stdout:
+                                espeak_proc.stdout.close()
+                            play_proc.wait(timeout=15)
+                            espeak_proc.wait(timeout=5)
+                        elif self.tts_bin:
+                            subprocess.run([self.tts_bin, "-v", self.tts_voice, "-s", str(self.tts_speed), text], timeout=15)
+                        else:
+                            self.get_logger().info(f"[TTS]: {text}")
+                except Exception as exc:
+                    self.get_logger().warn(f"TTS playback warning: {exc}")
+                finally:
+                    self._set_busy(-1)
 
     def _play_gtts(self, text: str) -> bool:
         """Speak text using Google TTS (UK English by default), returning False on offline/failure."""

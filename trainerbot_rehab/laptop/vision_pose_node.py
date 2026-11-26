@@ -286,6 +286,10 @@ class VisionPoseNode(Node):
 
     def _draw_hud(self, frame, detected: bool, status_text: str):
         h, w = frame.shape[:2]
+        # Framing Safety Grid box (shoulders inside this box need zero servo/wheel correction)
+        gx1, gx2 = int(0.38 * w), int(0.62 * w)
+        gy1, gy2 = int(0.32 * h), int(0.68 * h)
+        cv2.rectangle(frame, (gx1, gy1), (gx2, gy2), (60, 170, 90), 1)
         cv2.rectangle(frame, (0, 0), (w, 54), (20, 24, 28), -1)
         follow_tag = "PI-PID: ON" if self.follow_enabled else "PI-PID: OFF"
         dist_tag = f"{self.person_distance:.2f}m" if self.person_distance else "--"

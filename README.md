@@ -1,16 +1,16 @@
 # WTrainer — Universal Human-Framing Rehabilitation TurtleBot3
 
-**WTrainer** (`trainerbot_rehab`) is a safety-first, 3-device ROS 2 Jazzy rehabilitation personal trainer built on the TurtleBot3 Burger. It helps wheelchair users and individuals with lower-limb hemiplegia train upper-body and core muscles with live posture feedback, smooth automated camera framing, and real-time voice coaching via **Gemini 3.8 Live (`gemini-3.8-live`)**.
+**WTrainer** (`trainerbot_rehab`) is a safety-first, 3-device ROS 2 Jazzy rehabilitation personal trainer built on the TurtleBot3 Burger. It helps wheelchair users and individuals with lower-limb hemiplegia train upper-body and core muscles with live posture feedback, smooth automated camera framing, and wake-word-gated voice coaching via **Gemini 3.8 Live (`gemini-3.8-live`)**.
 
 ---
 
 ## 1. 3-Device Architecture
 
-| Device | Role | ROS 2 Nodes |
+| Device | Role | ROS 2 Nodes & Services |
 | :--- | :--- | :--- |
-| **TurtleBot3 Raspberry Pi** *(1 GB RAM)* | Hardware I/O, local LiDAR safety & PID motion | `robot.launch.py`, `usb_cam`, `robot_pid_controller_node` (20 Hz PID + 0.6 s connection-loss watchdog + 0.35 m collision stops), `servo_node` (50 Hz smooth tilt), `mic_node`, `speaker_node` |
-| **Laptop** *(Ubuntu 24.04 / WSL2)* | Heavy vision, AI coaching & dashboard host | `vision_pose_node` (MediaPipe Pose), `rehab_coach_node` (rehab-first rep & posture loop), `gemini_live_node` (`gemini-3.8-live`), `rosbridge_websocket`, native **Node-RED** (no Docker) |
-| **Phone** | Patient / therapist control panel | Mobile browser → `http://<LAPTOP_IP>:1880/dashboard/page1` |
+| **TurtleBot3 Raspberry Pi** *(1 GB RAM)* | Hardware I/O, local LiDAR safety & PID/grid motion | `robot.launch.py`, `usb_cam_node_exe`, `robot_pid_controller_node` (20 Hz PID + 1.8 s watchdog + LiDAR safety), `servo_node` (50 Hz smooth PWM/Dynamixel tilt + startup sweep), `mic_node` (`arecord` auto-detect INMP441), optional `speaker_node` |
+| **Laptop** *(Ubuntu 24.04 / WSL2)* | Heavy vision, AI coaching & dashboard host | `vision_pose_node` (MediaPipe Pose), `rehab_coach_node` (rehab-first rep & posture loop), `gemini_live_node` (`gemini-3.8-live`), `laptop_speaker_node` (Google UK `gTTS` + Gemini 24 kHz PCM), `rosbridge_websocket` + `rosapi`, native **Node-RED Dashboard 2.0** |
+| **Phone / Browser** | Patient / therapist control panel | Browser → `http://127.0.0.1:1880/dashboard/page1` (Laptop) or `http://<LAPTOP_IP>:1880/dashboard/page1` (Phone) |
 
 > **Privacy Guarantee:** Only anonymized MediaPipe numeric joint angles, torso tilt, and exercise names are forwarded to Gemini — **never** raw video frames, images, or personal identifiers.
 
@@ -18,7 +18,7 @@
 
 ## 2. Physical Wiring (Raspberry Pi 40-Pin Header)
 
-Hold the Raspberry Pi with the **USB/Ethernet ports pointing DOWN**. **Pin 1** is top-left; odd pins are on the left column, even pins on the right column.
+Hold the Raspberry Pi with the **USB/Ethernet ports pointing DOWN**. **Pin 1** is top-left; odd pins are on the left column, even pins are on the right column.
 
 | Component | Module Pin | Pi Physical Pin | BCM / Interface | Notes |
 | :--- | :--- | :--- | :--- | :--- |
@@ -28,11 +28,11 @@ Hold the Raspberry Pi with the **USB/Ethernet ports pointing DOWN**. **Pin 1** i
 | **INMP441 Mic** | `SCK` | Pin 12 | `GPIO 18` | Shared I2S Bit Clock |
 | **INMP441 Mic** | `WS` | Pin 35 | `GPIO 19` | Shared I2S Frame Clock |
 | **INMP441 Mic** | `SD` | Pin 38 | `GPIO 20` | I2S Data In |
-| **Camera PWM Servo** *(or Dynamixel via USB/OpenCR)* | Signal | Pin 32 | `GPIO 12` | Hardware PWM0 (`VCC` → Pin 4 `5V`, `GND` → Pin 14) |
+| **Camera PWM Servo** *(or Dynamixel via USB/OpenCR)* | Signal | Pin 32 | `GPIO 12` | Hardware PWM0 (`VCC` → `5V`, `GND` → shared Pi `GND`) |
 | **MAX98357A Amp** *(with APKLVSR 3W 4Ω Speaker)* | `VIN` / `GND` | Pin 2 (`5V`) / Pin 6 (`GND`) | `5V` / `GND` | Connects 2-wire speaker `+`/`-` safely |
 | **MAX98357A Amp** | `BCLK` / `LRC` / `DIN` | Pin 12 / Pin 35 / Pin 40 | `GPIO 18` / `19` / `21` | Shares clocks with INMP441 |
 
-> **Before MAX98357A arrives:** Leave the 2-wire speaker disconnected from the Pi. `laptop_brain.launch.py` plays all chimes, TTS cues, and Gemini voice responses directly on your **Laptop speakers** by default (`enable_laptop_speaker:=true`).
+> **Before MAX98357A arrives:** Leave the 2-wire speaker disconnected from the Pi. `laptop_brain.launch.py` plays all chimes, Google UK TTS cues, and Gemini voice responses directly on your **Laptop speakers** by default (`enable_laptop_speaker:=true`).
 
 ---
 
@@ -46,26 +46,31 @@ mkdir -p ~/turtlebot3_ws/src
 cd ~/turtlebot3_ws/src
 git clone https://github.com/SantiagoMartinezHernandez/WTrainer.git trainerbot_rehab
 
-# 2. Install ROS bridge, audio playback tools, Python deps, and native Node-RED (No Docker)
+# 2. Install ROS bridge/rosapi, audio playback tools, and Node.js
 sudo apt update
-sudo apt install -y ros-jazzy-rosbridge-server alsa-utils pulseaudio-utils espeak-ng nodejs npm python3-numpy
+sudo apt install -y \
+  ros-jazzy-rosbridge-server ros-jazzy-rosapi \
+  alsa-utils pulseaudio-utils ffmpeg espeak-ng \
+  nodejs npm python3-numpy python3-opencv python3-dotenv python3-yaml
 
+# 3. Install Python dependencies (pin numpy<2 for ROS 2 Jazzy cv_bridge compatibility)
 cd ~/turtlebot3_ws/src/trainerbot_rehab
-pip install --break-system-packages -r requirements_laptop.txt
+pip install --break-system-packages -r requirements_laptop.txt "numpy<2"
 
+# 4. Install native Node-RED + Dashboard 2.0 + ROS 2 nodes (No Docker)
 sudo npm install -g --unsafe-perm node-red
 mkdir -p ~/.node-red && cd ~/.node-red
 npm install @flowfuse/node-red-dashboard node-red-contrib-ros2-suite
 
-# 3. Create your private .env (ignored by .gitignore)
+# 5. Create your private .env (ignored by .gitignore)
 cd ~/turtlebot3_ws/src/trainerbot_rehab
 cp .env.example .env
-nano .env   # Set GEMINI_API_KEY, GEMINI_LIVE_MODEL=gemini-3.8-live, ROS_DOMAIN_ID, ROBOT_IP
+nano .env   # Set GEMINI_API_KEY, GEMINI_LIVE_MODEL=gemini-3.8-live, ROS_DOMAIN_ID=108, ROBOT_IP
 
-# 4. Build the ROS 2 package
+# 6. Build the ROS 2 package
 cd ~/turtlebot3_ws
 source /opt/ros/jazzy/setup.bash
-colcon build --symlink-install --packages-select trainerbot_rehab
+colcon build --packages-select trainerbot_rehab
 source install/setup.bash
 ```
 
@@ -81,8 +86,11 @@ git clone https://github.com/SantiagoMartinezHernandez/WTrainer.git trainerbot_r
 
 # 2. Install lightweight Pi hardware/audio packages (no MediaPipe/Gemini needed on Pi)
 sudo apt update
-sudo apt install -y alsa-utils espeak-ng python3-gpiozero rpi.gpio-common ros-jazzy-usb-cam
-sudo usermod -aG audio,video,dialout $USER
+sudo apt install -y \
+  alsa-utils ffmpeg espeak-ng \
+  python3-gpiozero python3-lgpio python3-rpi-lgpio \
+  ros-jazzy-usb-cam
+sudo usermod -aG audio,video,dialout,gpio $USER
 
 # 3. Enable I2S audio in /boot/firmware/config.txt
 sudo nano /boot/firmware/config.txt
@@ -93,38 +101,77 @@ sudo nano /boot/firmware/config.txt
 sudo reboot
 ```
 
-After the Pi reboots, SSH back in and build:
+After the Pi reboots, SSH back in, build, and run the hardware diagnostic check:
 ```bash
 ssh ubuntu@<ROBOT_IP>
 cd ~/turtlebot3_ws
 source /opt/ros/jazzy/setup.bash
-colcon build --symlink-install --packages-select trainerbot_rehab
+colcon build --packages-select trainerbot_rehab
 source install/setup.bash
-arecord -l   # Confirm INMP441 mic card/device (typically plughw:0,0)
+bash ~/turtlebot3_ws/src/trainerbot_rehab/scripts/hardware_check.sh
 ```
 
 ---
 
-## 4. Running the System
+## 4. Running & Stopping the System
 
-Ensure **TurtleBot3**, **Laptop**, and **Phone** are on the same Wi-Fi network (and Laptop firewall allows ROS 2 + port `1880`).
+Ensure **TurtleBot3**, **Laptop**, and **Phone** are on the same Wi-Fi network (and passwordless SSH is configured once via `ssh-copy-id ubuntu@<ROBOT_IP>`).
 
-On the **Laptop**:
+### Start Everything
 ```bash
-chmod +x ~/turtlebot3_ws/src/trainerbot_rehab/scripts/start_system.sh
-bash ~/turtlebot3_ws/src/trainerbot_rehab/scripts/start_system.sh
+cd ~/turtlebot3_ws/src/trainerbot_rehab
+bash scripts/start_system.sh <ROBOT_IP>
 ```
+1. Kills any leftover Pi processes, runs `robot_bringup.launch.py` on the Pi (including a `±25°` startup servo self-test sweep).
+2. Launches `laptop_brain.launch.py` (`rosbridge`, `vision_pose_node`, `rehab_coach_node`, `gemini_live_node`, `laptop_speaker_node`).
+3. Plays the **victory chime** once ready and starts **Node-RED** natively on port `1880`.
+4. Open `http://127.0.0.1:1880/dashboard/page1` on your Laptop (or `http://<LAPTOP_IP>:1880/dashboard/page1` on a phone).
 
-1. The script launches Pi hardware bringup over SSH, starts Laptop Brain nodes, and starts Node-RED.
-2. Once ready, the **victory fanfare chime** plays and the coach greets you.
-3. Open `http://<LAPTOP_IP>:1880/dashboard/page1` on your **Phone**.
-
-### Switching Audio to the TurtleBot3 (Once MAX98357A is Wired)
-- On Pi: `ros2 launch trainerbot_rehab robot_bringup.launch.py enable_speaker:=true`
-- On Laptop: `ros2 launch trainerbot_rehab laptop_brain.launch.py enable_laptop_speaker:=false`
+### Stop Everything Cleanly
+Press `Ctrl+C` in the `start_system.sh` terminal, **or** run from any terminal:
+```bash
+cd ~/turtlebot3_ws/src/trainerbot_rehab
+bash scripts/stop_system.sh <ROBOT_IP>
+```
 
 ---
 
-## 5. Additional Documentation
+## 5. System Explainability (Nodes & Calculations)
+
+1. **`robot_pid_controller_node` (Pi, 20 Hz control loop + `1.8 s` watchdog)**
+   - **`camera_reversed` (default `true`):** Aligns linear drive velocity (`/cmd_vel`), LiDAR target bearing, and front/rear safety cones when the camera faces the rear (`-X`) side of the TurtleBot3 Burger.
+   - **Y-Axis Safety Grid (`y_grid_min=0.32`, `y_grid_max=0.68`, `0.8 s` cooldown):** If the user's shoulder midpoint `mid_y` is inside `[0.32, 0.68]`, the servo stays still and detaches PWM (`detach_after_sec=0.35`) to eliminate jitter. Only when `mid_y` leaves the grid does it step up to `±5°`.
+   - **Camera-First Framing + `±10°` LiDAR Cone:** Rotates first when horizontal error `|0.5 - mid_x| > 0.12`. Uses normalized shoulder width (`0.16..0.28`) to hold/back up if the user fills too much of the frame, and uses `±10°` LiDAR foreground clustering toward `1.40 m` (`0.90 m` autonomous front stop, `0.25 m` manual bump guard, `< 0.14 m` self-hit filter).
+2. **`servo_node` (Pi, 50 Hz smoother)**
+   - Runs a startup sweep (`0° → +25° → -25° → 0°`) then notifies `/trainerbot/servo_selftest_done`. Smooths incoming angles via EMA (`alpha=0.15`), slew limit (`30°/s`), `1.0–2.0 ms` pulses, and auto-detaches PWM once settled.
+3. **`vision_pose_node` (Laptop)**
+   - Runs MediaPipe `PoseLandmarker`, publishes lightweight `{detected, mid_x, mid_y, shoulder_width}` to the Pi, calculates 2-decimal joint angles + torso tilt, draws the green Safety Grid box on `/trainerbot/elbow_preview`, and never sends raw images to Gemini.
+4. **`rehab_coach_node` & `gemini_live_node` & `speaker_node`**
+   - `rehab_coach_node` runs the 4-exercise rehab state machine (`config/exercise_catalog.json`), checking posture/pace warnings before counting reps.
+   - `mic_node` starts **muted** (`start_active:=false`). When enabled on the dashboard, `gemini_live_node` streams transcripts to **`Heard (Mic Debug)`** (`/trainerbot/user_transcript`) and only speaks back for **`"turtle"`** / **`"trainerbot"`** wake words or button prompts. Stopping an exercise sends `/trainerbot/audio_interrupt` and `speaker_node` serializes PCM + TTS under a single speech lock so two voices never talk simultaneously.
+
+---
+
+## 6. Editing the UI in Node-RED (Drag & Drop) & Switching Labs/Wi-Fi
+
+### Opening Node-RED Visually
+1. While `start_system.sh` is running, open the **visual flow editor** at **`http://127.0.0.1:1880`** (dashboard preview is at **`http://127.0.0.1:1880/dashboard/page1`**).
+2. Drag/edit nodes visually and click **Deploy**.
+3. Copy your edited flow back into Git before rebuilding/committing:
+   ```bash
+   cp ~/.node-red/flows.json ~/turtlebot3_ws/src/trainerbot_rehab/node_red/flows.json
+   ```
+
+### Moving Between Home Wi-Fi and the Lab Wi-Fi
+- Updating `/etc/netplan/*.yaml` on the Pi only changes which Wi-Fi network the Pi connects to (its IP address changes, e.g. `192.168.1.10` at home vs `192.168.1.108` or lab DHCP IP).
+- **Nothing in the ROS 2 Python code or `flows.json` hardcodes the Pi IP.** Simply pass the new IP to `start_system.sh` / `stop_system.sh` (or set `ROBOT_IP=` in `.env`):
+  ```bash
+  bash scripts/start_system.sh <NEW_LAB_ROBOT_IP>
+  ```
+- Also make sure `ROS_DOMAIN_ID` (`108` by default) matches on both Pi and Laptop and that you re-run `ssh-copy-id ubuntu@<NEW_LAB_ROBOT_IP>` once if the IP changed.
+
+---
+
+## 7. Additional Documentation
 - Detailed wiring diagrams & troubleshooting: [`docs/WIRING_AND_SETUP.md`](docs/WIRING_AND_SETUP.md)
 - Exercise catalog: [`config/exercise_catalog.json`](config/exercise_catalog.json)

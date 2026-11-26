@@ -63,6 +63,7 @@ class RehabCoachNode(Node):
         self.follow_pub = self.create_publisher(Bool, "/trainerbot/follow_enable", 10)
         self.sound_pub = self.create_publisher(String, "/trainerbot/play_sound", 10)
         self.tts_pub = self.create_publisher(String, "/trainerbot/tts_text", 10)
+        self.interrupt_pub = self.create_publisher(Bool, "/trainerbot/audio_interrupt", 10)
         self.coach_msg_pub = self.create_publisher(String, "/trainerbot/coach_message", 10)
         self.warning_pub = self.create_publisher(String, "/trainerbot/coach_warning", 10)
         self.rep_status_pub = self.create_publisher(String, "/trainerbot/rep_status", 10)
@@ -188,6 +189,7 @@ class RehabCoachNode(Node):
     def _stop_exercise(self, message: str):
         self.active_exercise = None
         self.rep_phase = "REST"
+        self.interrupt_pub.publish(Bool(data=True))
         self.sound_pub.publish(String(data="stop"))
         self.rep_status_pub.publish(String(data="Stopped"))
         self.warning_pub.publish(String(data="Stopped by user"))

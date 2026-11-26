@@ -30,6 +30,7 @@ def generate_launch_description():
     speaker_pwm_pin_arg = DeclareLaunchArgument("speaker_pwm_pin", default_value="13")
     start_following_arg = DeclareLaunchArgument("start_following", default_value="false")
     target_distance_arg = DeclareLaunchArgument("target_distance", default_value="1.40")
+    camera_reversed_arg = DeclareLaunchArgument("camera_reversed", default_value="true")
 
     turtlebot_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -62,6 +63,7 @@ def generate_launch_description():
         parameters=[{
             "start_following": LaunchConfiguration("start_following"),
             "target_distance": LaunchConfiguration("target_distance"),
+            "camera_reversed": LaunchConfiguration("camera_reversed"),
         }],
     )
 
@@ -114,6 +116,7 @@ def generate_launch_description():
         speaker_pwm_pin_arg,
         start_following_arg,
         target_distance_arg,
+        camera_reversed_arg,
         turtlebot_launch,
         usb_cam_node,
         robot_pid_controller_node,

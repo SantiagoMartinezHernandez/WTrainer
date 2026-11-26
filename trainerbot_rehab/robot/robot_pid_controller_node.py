@@ -48,18 +48,25 @@ class RobotPIDControllerNode(Node):
 
         self.declare_parameter("start_following", False)
         self.declare_parameter("use_twist_stamped", True)
+        self.declare_parameter("camera_reversed", True)
         self.declare_parameter("target_distance", 1.40)
         self.declare_parameter("camera_hfov_deg", 60.0)
         self.declare_parameter("cluster_threshold", 0.35)
         self.declare_parameter("min_front_safety_dist", 0.90)
         self.declare_parameter("min_rear_safety_dist", 0.40)
         self.declare_parameter("min_manual_safety_dist", 0.25)
-        self.declare_parameter("target_shoulder_width_min", 0.20)
-        self.declare_parameter("target_shoulder_width_max", 0.34)
+        self.declare_parameter("target_shoulder_width_min", 0.16)
+        self.declare_parameter("target_shoulder_width_max", 0.28)
+        self.declare_parameter("y_grid_min", 0.32)
+        self.declare_parameter("y_grid_max", 0.68)
+        self.declare_parameter("tilt_cooldown_sec", 0.8)
+        self.declare_parameter("tilt_step_gain", 18.0)
+        self.declare_parameter("tilt_max_step_deg", 5.0)
         self.declare_parameter("watchdog_timeout_sec", 1.8)
 
         self.follow_enabled = bool(self.get_parameter("start_following").value)
         self.use_twist_stamped = bool(self.get_parameter("use_twist_stamped").value)
+        self.camera_reversed = bool(self.get_parameter("camera_reversed").value)
         self.target_distance = float(self.get_parameter("target_distance").value)
         self.hfov_rad = math.radians(float(self.get_parameter("camera_hfov_deg").value))
         self.cluster_threshold = float(self.get_parameter("cluster_threshold").value)
@@ -68,6 +75,11 @@ class RobotPIDControllerNode(Node):
         self.min_manual_safety = float(self.get_parameter("min_manual_safety_dist").value)
         self.target_sw_min = float(self.get_parameter("target_shoulder_width_min").value)
         self.target_sw_max = float(self.get_parameter("target_shoulder_width_max").value)
+        self.y_grid_min = float(self.get_parameter("y_grid_min").value)
+        self.y_grid_max = float(self.get_parameter("y_grid_max").value)
+        self.tilt_cooldown_sec = float(self.get_parameter("tilt_cooldown_sec").value)
+        self.tilt_step_gain = float(self.get_parameter("tilt_step_gain").value)
+        self.tilt_max_step_deg = float(self.get_parameter("tilt_max_step_deg").value)
         self.watchdog_timeout = float(self.get_parameter("watchdog_timeout_sec").value)
 
         # Smooth PID controllers
@@ -88,6 +100,7 @@ class RobotPIDControllerNode(Node):
         self.current_tilt = 0.0
         self.tilt_offset_deg = 0.0
         self._last_published_tilt = 0.0
+        self._last_tilt_time = 0.0
         self.person_detected = False
         self.target_mid_x = None
         self.target_mid_y = None
@@ -224,14 +237,25 @@ class RobotPIDControllerNode(Node):
         self.last_obs_time = time.monotonic()
         self._watchdog_tripped = False
 
-        # Y-axis camera tilt PID updates immediately when observation arrives
-        error_y = 0.5 - mid_y
-        tilt_delta = self.tilt_pid.update(error_y, measurement=mid_y)
-        self.current_tilt = max(-45.0, min(45.0, self.current_tilt + tilt_delta))
-        desired_tilt = float(self.current_tilt + self.tilt_offset_deg)
-        if abs(desired_tilt - self._last_published_tilt) >= 1.5:
-            self._last_published_tilt = desired_tilt
-            self.tilt_pub.publish(Float32(data=desired_tilt))
+        # Y-axis camera tilt safety grid + cooldown (holds still inside safe band)
+        now = time.monotonic()
+        if not (self.y_grid_min <= mid_y <= self.y_grid_max):
+            if (now - self._last_tilt_time) >= self.tilt_cooldown_sec:
+                err = (
+                    (self.y_grid_min - mid_y)
+                    if mid_y < self.y_grid_min
+                    else (self.y_grid_max - mid_y)
+                )
+                delta = max(
+                    -self.tilt_max_step_deg,
+                    min(self.tilt_max_step_deg, err * self.tilt_step_gain),
+                )
+                self.current_tilt = max(-45.0, min(45.0, self.current_tilt + delta))
+                self._last_tilt_time = now
+                desired_tilt = float(self.current_tilt + self.tilt_offset_deg)
+                if abs(desired_tilt - self._last_published_tilt) >= 1.5:
+                    self._last_published_tilt = desired_tilt
+                    self.tilt_pub.publish(Float32(data=desired_tilt))
 
     # -----------------------------------------------------------------
     # Local LiDAR Cross-Referencing & Wall Rejection
@@ -247,6 +271,8 @@ class RobotPIDControllerNode(Node):
             return
 
         target_bearing = (0.5 - self.target_mid_x) * self.hfov_rad
+        if self.camera_reversed:
+            target_bearing = ((target_bearing + 2.0 * math.pi) % (2.0 * math.pi)) - math.pi
         half_span = math.radians(10.0)
 
         valid_ranges = []
@@ -364,10 +390,18 @@ class RobotPIDControllerNode(Node):
                 continue
             angle = scan.angle_min + i * scan.angle_increment
             angle_norm = (angle + math.pi) % (2.0 * math.pi) - math.pi
-            if abs(angle_norm) <= 0.52 and r < min_front:
-                min_front = r
-            if abs(angle_norm) >= 2.62 and r < min_rear:
-                min_rear = r
+            is_pos_x = abs(angle_norm) <= 0.52
+            is_neg_x = abs(angle_norm) >= 2.62
+            if self.camera_reversed:
+                if is_neg_x and r < min_front:
+                    min_front = r
+                if is_pos_x and r < min_rear:
+                    min_rear = r
+            else:
+                if is_pos_x and r < min_front:
+                    min_front = r
+                if is_neg_x and r < min_rear:
+                    min_rear = r
 
         if min_front < front_thresh and desired_linear_x > 0.0:
             self.get_logger().warn(
@@ -384,16 +418,17 @@ class RobotPIDControllerNode(Node):
         return desired_linear_x
 
     def _publish_velocity(self, linear_x: float, angular_z: float):
+        hw_linear_x = -float(linear_x) if self.camera_reversed else float(linear_x)
         if self.publish_stamped:
             msg = TwistStamped()
             msg.header.stamp = self.get_clock().now().to_msg()
             msg.header.frame_id = "base_footprint"
-            msg.twist.linear.x = float(linear_x)
+            msg.twist.linear.x = hw_linear_x
             msg.twist.angular.z = float(angular_z)
             self.cmd_vel_pub.publish(msg)
         else:
             msg = Twist()
-            msg.linear.x = float(linear_x)
+            msg.linear.x = hw_linear_x
             msg.angular.z = float(angular_z)
             self.cmd_vel_pub.publish(msg)
 

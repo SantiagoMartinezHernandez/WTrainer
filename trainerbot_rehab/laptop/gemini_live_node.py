@@ -218,10 +218,10 @@ class GeminiLiveNode(Node):
                 self.get_logger().info(f"User voice transcript: {transcript}")
                 self.user_transcript_pub.publish(String(data=transcript))
                 lower_tx = transcript.lower()
-                if any(
-                    w in lower_tx
-                    for w in ("turtle", "trainerbot", "stop", "halt", "pause", "pain", "help")
-                ):
+                if any(w in lower_tx for w in ("stop", "halt", "pause")):
+                    self._reply_allowed_until = 0.0
+                    self.interrupt_pub.publish(Bool(data=True))
+                elif any(w in lower_tx for w in ("turtle", "trainerbot", "pain", "help")):
                     self._reply_allowed_until = time.monotonic() + 20.0
                 self._detect_voice_commands(transcript)
 
