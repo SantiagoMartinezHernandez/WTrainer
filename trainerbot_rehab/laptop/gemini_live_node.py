@@ -10,6 +10,7 @@ Runs on the Laptop Brain using the `google-genai` SDK (`>= 2.3.0`).
 """
 
 import asyncio
+import collections
 import json
 import os
 import queue
@@ -134,22 +135,30 @@ class GeminiLiveNode(Node):
         self._stop_event = threading.Event()
         self._latest_telemetry: dict | None = None
         self._logged_first_audio_in = False
+        self._mic_active = False
+        self._prompt_active_until = 0.0
         self._reply_allowed_until = 0.0
+        self._cooldown_until = 0.0
+        self._connect_timestamps = collections.deque(maxlen=6)
+        self._backoff_sec = 2.0
         self._last_wake_chime = 0.0
         self._last_offline_stop = 0.0
         self._last_partial = ""
         self._pending_audio: list[bytes] = []
         self._gemini_online = False
+        self._gemini_configured = bool(HAS_GENAI and self.api_key and self.api_key != "your_api_key_here")
         self._vosk_lock = threading.Lock()
         self._vosk_recognizer = self._init_vosk()
 
-        if not HAS_GENAI or not self.api_key or self.api_key == "your_api_key_here":
+        if not self._gemini_configured:
             self.get_logger().warn(
                 "Gemini Live disabled (missing GEMINI_API_KEY or google-genai); running in local/offline mode."
             )
         else:
+            # Mark ready for on-demand sessions; flips False if network/quota fails.
+            self.gemini_online_pub.publish(Bool(data=True))
             self.get_logger().info(
-                f"gemini_live_node starting (model={self.model}, env_loaded={env_file is not None})"
+                f"gemini_live_node starting (model={self.model}, on_demand=True, env_loaded={env_file is not None})"
             )
             self._worker = threading.Thread(target=self._run_async_loop, daemon=True)
             self._worker.start()
@@ -180,12 +189,18 @@ class GeminiLiveNode(Node):
     # -----------------------------------------------------------------
     # ROS 2 Callbacks -> Thread-Safe Queue
     # -----------------------------------------------------------------
+    def _should_be_connected(self) -> bool:
+        return self._mic_active or (time.monotonic() < self._prompt_active_until)
+
     def _on_mic_active(self, msg: Bool):
         active = bool(msg.data)
+        self._mic_active = active
         self._last_partial = ""
         if active:
             if self._gemini_online:
                 status = "Mic ON — listening (Gemini Live)"
+            elif self._gemini_configured and time.monotonic() >= self._cooldown_until:
+                status = "Mic ON — connecting Gemini Live..."
             elif self._vosk_recognizer is not None:
                 status = "Mic ON — listening (Offline Vosk)"
             else:
@@ -241,7 +256,9 @@ class GeminiLiveNode(Node):
         if text:
             if self._latest_telemetry is not None:
                 text = f"{text} [ANONYMIZED_TELEMETRY] {json.dumps(self._latest_telemetry)}"
-            self._reply_allowed_until = time.monotonic() + 25.0
+            now = time.monotonic()
+            self._prompt_active_until = now + 35.0
+            self._reply_allowed_until = now + 35.0
             self.get_logger().info("Sending dashboard prompt to Gemini Live.")
             self._enqueue("text", text)
 
@@ -279,11 +296,42 @@ class GeminiLiveNode(Node):
         )
 
         while not self._stop_event.is_set():
+            if not self._should_be_connected():
+                await asyncio.sleep(0.3)
+                continue
+
+            now = time.monotonic()
+            if now < self._cooldown_until:
+                self._gemini_online = False
+                await asyncio.sleep(1.0)
+                continue
+
+            while self._connect_timestamps and (now - self._connect_timestamps[0]) > 300.0:
+                self._connect_timestamps.popleft()
+            if len(self._connect_timestamps) >= 6:
+                self._cooldown_until = now + 60.0
+                self._gemini_online = False
+                self.gemini_online_pub.publish(Bool(data=False))
+                self.get_logger().warn(
+                    "Gemini reconnect limit reached (6 attempts / 5 min) — 60s quota cooldown, using Offline Vosk."
+                )
+                self.user_transcript_pub.publish(
+                    String(data="Gemini reconnect limit reached (60s cooldown) — Offline Vosk active")
+                )
+                await asyncio.sleep(1.0)
+                continue
+
+            self._connect_timestamps.append(now)
+            connect_started = now
             try:
                 async with client.aio.live.connect(model=self.model, config=config) as session:
                     self._gemini_online = True
                     self.gemini_online_pub.publish(Bool(data=True))
                     self.get_logger().info(f"Connected to Gemini Live session ({self.model}).")
+                    if self._mic_active:
+                        self.user_transcript_pub.publish(
+                            String(data="Mic ON — listening (Gemini Live)")
+                        )
                     sender = asyncio.create_task(self._send_loop(session))
                     receiver = asyncio.create_task(self._receive_loop(session))
                     done, pending = await asyncio.wait(
@@ -291,17 +339,38 @@ class GeminiLiveNode(Node):
                     )
                     for task in pending:
                         task.cancel()
+                    if (time.monotonic() - connect_started) >= 10.0:
+                        self._backoff_sec = 2.0
             except Exception as exc:
-                self.get_logger().warn(f"Gemini Live session offline/reconnecting: {exc}")
+                err_lower = str(exc).lower()
+                if any(tok in err_lower for tok in ("429", "quota", "resource_exhausted", "rate")):
+                    self._cooldown_until = time.monotonic() + 60.0
+                    self.gemini_online_pub.publish(Bool(data=False))
+                    self.get_logger().warn(f"Gemini quota/rate limit — 60s cooldown: {exc}")
+                    self.user_transcript_pub.publish(
+                        String(data="Gemini quota cooldown (60s) — using Offline Vosk")
+                    )
+                else:
+                    self.gemini_online_pub.publish(Bool(data=False))
+                    self.get_logger().warn(
+                        f"Gemini Live disconnected (retrying in {self._backoff_sec:.0f}s): {exc}"
+                    )
+                    slept = 0.0
+                    while slept < self._backoff_sec and not self._stop_event.is_set() and self._should_be_connected():
+                        await asyncio.sleep(0.5)
+                        slept += 0.5
+                    self._backoff_sec = min(30.0, self._backoff_sec * 2.0)
             finally:
                 if self._gemini_online:
                     self._gemini_online = False
-                    self.gemini_online_pub.publish(Bool(data=False))
-            await asyncio.sleep(3.0)
+                    if (time.monotonic() - connect_started) >= 10.0:
+                        self._backoff_sec = 2.0
+                    if not self._should_be_connected():
+                        self.gemini_online_pub.publish(Bool(data=True))
 
     async def _send_loop(self, session):
         loop = asyncio.get_running_loop()
-        while not self._stop_event.is_set():
+        while not self._stop_event.is_set() and self._should_be_connected():
             try:
                 kind, payload = await loop.run_in_executor(
                     None, lambda: self._outbound_queue.get(timeout=0.2)
