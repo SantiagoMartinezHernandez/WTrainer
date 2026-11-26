@@ -6,9 +6,12 @@ Supports both Dynamixel servos (Protocol 2.0 via dynamixel_sdk) and standard
 Applies EMA target filtering + slew-rate limiting for silky-smooth Y-axis motion.
 """
 
+import time
+
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import Float32
+from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
+from std_msgs.msg import Bool, Float32
 
 try:
     from dynamixel_sdk import COMM_SUCCESS, PacketHandler, PortHandler
@@ -40,6 +43,8 @@ class SmoothServoNode(Node):
         self.declare_parameter("invert_direction", False)
         self.declare_parameter("max_deg_per_sec", 45.0)      # Smooth slew rate limit
         self.declare_parameter("smooth_alpha", 0.25)         # EMA smoothing factor
+        self.declare_parameter("startup_selftest", True)
+        self.declare_parameter("selftest_angle_deg", 25.0)
 
         self.servo_type = str(self.get_parameter("servo_type").value).lower()
         self.gpio_pin = int(self.get_parameter("gpio_pin").value)
@@ -54,6 +59,8 @@ class SmoothServoNode(Node):
         self.invert = bool(self.get_parameter("invert_direction").value)
         self.max_deg_per_sec = max(5.0, float(self.get_parameter("max_deg_per_sec").value))
         self.smooth_alpha = max(0.05, min(1.0, float(self.get_parameter("smooth_alpha").value)))
+        self.startup_selftest = bool(self.get_parameter("startup_selftest").value)
+        self.selftest_angle_deg = abs(float(self.get_parameter("selftest_angle_deg").value))
 
         self.target_angle = 0.0
         self.filtered_target = 0.0
@@ -67,6 +74,27 @@ class SmoothServoNode(Node):
         self._packet_handler = None
 
         self._init_hardware()
+
+        selftest_qos = QoSProfile(
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+        )
+        self.selftest_done_pub = self.create_publisher(
+            Bool, "/trainerbot/servo_selftest_done", selftest_qos
+        )
+        self._selftest_phase_started = time.monotonic()
+        self._selftest_hold_started = None
+        if self.startup_selftest:
+            self._selftest_phase = "WAIT"
+            self.target_angle = 0.0
+            self.get_logger().info(
+                f"Starting servo startup self-test (+/-{self.selftest_angle_deg:.1f} deg sweep)..."
+            )
+        else:
+            self._selftest_phase = "DONE"
+            self.selftest_done_pub.publish(Bool(data=True))
 
         # Listen on primary and legacy topics for seamless compatibility
         self.sub_main = self.create_subscription(
@@ -150,10 +178,47 @@ class SmoothServoNode(Node):
             return False
 
     def _tilt_callback(self, msg: Float32):
+        if self._selftest_phase != "DONE":
+            return
         angle = max(self.min_angle, min(self.max_angle, float(msg.data)))
         self.target_angle = -angle if self.invert else angle
 
+    def _advance_selftest(self):
+        if self._selftest_phase == "DONE":
+            return
+        now = time.monotonic()
+        if self._selftest_phase == "WAIT":
+            if (now - self._selftest_phase_started) >= 0.3:
+                up_angle = max(self.min_angle, min(self.max_angle, self.selftest_angle_deg))
+                self.target_angle = -up_angle if self.invert else up_angle
+                self._selftest_phase = "UP"
+                self._selftest_hold_started = None
+        elif self._selftest_phase == "UP":
+            if abs(self.current_angle - self.target_angle) <= 1.0:
+                if self._selftest_hold_started is None:
+                    self._selftest_hold_started = now
+                elif (now - self._selftest_hold_started) >= 0.25:
+                    down_angle = max(self.min_angle, min(self.max_angle, -self.selftest_angle_deg))
+                    self.target_angle = -down_angle if self.invert else down_angle
+                    self._selftest_phase = "DOWN"
+                    self._selftest_hold_started = None
+        elif self._selftest_phase == "DOWN":
+            if abs(self.current_angle - self.target_angle) <= 1.0:
+                if self._selftest_hold_started is None:
+                    self._selftest_hold_started = now
+                elif (now - self._selftest_hold_started) >= 0.25:
+                    self.target_angle = 0.0
+                    self._selftest_phase = "CENTER"
+                    self._selftest_hold_started = None
+        elif self._selftest_phase == "CENTER":
+            if abs(self.current_angle - self.target_angle) <= 1.0:
+                self._selftest_phase = "DONE"
+                self.get_logger().info("Servo startup self-test complete.")
+                self.selftest_done_pub.publish(Bool(data=True))
+
     def _update_servo_loop(self):
+        self._advance_selftest()
+
         # 1. EMA smooth the incoming setpoint
         self.filtered_target = (
             self.smooth_alpha * self.target_angle

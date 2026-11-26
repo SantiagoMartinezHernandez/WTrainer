@@ -75,8 +75,8 @@ class RehabCoachNode(Node):
         self.create_subscription(String, "/trainerbot/voice_command", self._on_voice_command, 10)
         self.create_subscription(Bool, "/trainerbot/robot_ready", self._on_robot_ready, 10)
 
-        # Startup fallback timer so Node-RED has time to connect before welcome text
-        self.create_timer(7.0, self._startup_fallback_timer)
+        # Startup fallback timer so Node-RED and Pi servo self-test finish before welcome text
+        self.create_timer(10.0, self._startup_fallback_timer)
         self.get_logger().info(f"rehab_coach_node ready with {len(self.catalog)} catalog exercises.")
 
     # -----------------------------------------------------------------
@@ -103,6 +103,7 @@ class RehabCoachNode(Node):
         cmd = msg.data.strip()
         if not cmd:
             return
+        self.get_logger().info(f"GUI command received on /trainerbot/selected_game: {cmd}")
 
         if cmd in ("no_game", "stop", "stop_game"):
             self._stop_exercise("Stopped safely. Take a breather whenever you need.")

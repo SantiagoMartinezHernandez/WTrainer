@@ -22,13 +22,22 @@ import numpy as np
 import rclpy
 from geometry_msgs.msg import Twist, TwistStamped
 from rclpy.node import Node
-from rclpy.qos import qos_profile_sensor_data
+from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
 from sensor_msgs.msg import LaserScan
 from std_msgs.msg import Bool, Float32, String
 
 from trainerbot_rehab.common.pid import PIDController
 
-ALLOWED_MANUAL_STEP_VELOCITIES = {(0.05, 0.0), (-0.05, 0.0), (0.0, 0.3), (0.0, -0.3)}
+ALLOWED_MANUAL_STEP_VELOCITIES = {
+    (0.05, 0.0),
+    (-0.05, 0.0),
+    (0.0, 0.3),
+    (0.0, -0.3),
+    (0.1, 0.0),
+    (-0.1, 0.0),
+    (0.0, 0.45),
+    (0.0, -0.45),
+}
 
 
 class RobotPIDControllerNode(Node):
@@ -44,7 +53,7 @@ class RobotPIDControllerNode(Node):
         self.declare_parameter("cluster_threshold", 0.35)
         self.declare_parameter("min_front_safety_dist", 0.35)
         self.declare_parameter("min_rear_safety_dist", 0.35)
-        self.declare_parameter("watchdog_timeout_sec", 0.6)
+        self.declare_parameter("watchdog_timeout_sec", 1.8)
 
         self.follow_enabled = bool(self.get_parameter("start_following").value)
         self.use_twist_stamped = bool(self.get_parameter("use_twist_stamped").value)
@@ -104,25 +113,41 @@ class RobotPIDControllerNode(Node):
             self.publish_stamped = True
 
         # Subscriptions
+        selftest_qos = QoSProfile(
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+        )
         self.create_subscription(LaserScan, "/scan", self._scan_callback, qos_profile_sensor_data)
         self.create_subscription(String, "/trainerbot/target_observation", self._observation_cb, 10)
         self.create_subscription(Bool, "/trainerbot/follow_enable", self._follow_enable_cb, 10)
         self.create_subscription(Twist, "/trainerbot/manual_drive", self._manual_drive_cb, 10)
         self.create_subscription(String, "/trainerbot/active_exercise", self._exercise_config_cb, 10)
+        self.create_subscription(Bool, "/trainerbot/servo_selftest_done", self._selftest_done_cb, selftest_qos)
 
         # 20 Hz real-time control loop + 1 Hz ready announcement
+        self._servo_selftest_done = False
+        self._start_time = time.monotonic()
+        self._ready_pub_count = 0
         self.create_timer(0.05, self._control_loop)
-        self._announced_ready = False
         self.create_timer(1.0, self._check_ready)
 
         self.get_logger().info(
             f"robot_pid_controller_node ready on Pi (watchdog={self.watchdog_timeout}s)."
         )
 
+    def _selftest_done_cb(self, msg: Bool):
+        if msg.data and not self._servo_selftest_done:
+            self._servo_selftest_done = True
+            self.get_logger().info("Servo startup self-test finished; robot is ready.")
+
     def _check_ready(self):
-        if not self._announced_ready:
-            self._announced_ready = True
-            self.ready_pub.publish(Bool(data=True))
+        ready = self._servo_selftest_done or (time.monotonic() - self._start_time) >= 5.0
+        if not ready or self._ready_pub_count >= 6:
+            return
+        self._ready_pub_count += 1
+        self.ready_pub.publish(Bool(data=True))
 
     # -----------------------------------------------------------------
     # Subscriptions
@@ -137,6 +162,7 @@ class RobotPIDControllerNode(Node):
 
     def _manual_drive_cb(self, msg: Twist):
         req = (round(float(msg.linear.x), 3), round(float(msg.angular.z), 3))
+        self.get_logger().info(f"Manual drive received: linear_x={req[0]:+.3f}, angular_z={req[1]:+.3f}")
         if req == (0.0, 0.0):
             self.manual_linear_x = 0.0
             self.manual_angular_z = 0.0
@@ -149,7 +175,7 @@ class RobotPIDControllerNode(Node):
         else:
             self.manual_linear_x = max(-0.12, min(0.12, req[0]))
             self.manual_angular_z = max(-0.5, min(0.5, req[1]))
-        self.manual_until = time.monotonic() + 0.5
+        self.manual_until = time.monotonic() + 0.6
 
     def _exercise_config_cb(self, msg: String):
         try:
