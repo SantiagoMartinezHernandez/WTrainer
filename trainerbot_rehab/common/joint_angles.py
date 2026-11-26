@@ -53,6 +53,18 @@ def _landmark_vis(lm) -> float:
     return float(vis if vis is not None else 1.0)
 
 
+def _angle_from_vertical_deg(shoulder, elbow) -> float | None:
+    """Measure angle (0..180 deg) between upper arm vector (shoulder->elbow) and vertical down."""
+    sx, sy = _extract_xy(shoulder)
+    ex, ey = _extract_xy(elbow)
+    ux, uy = ex - sx, ey - sy
+    length = math.hypot(ux, uy)
+    if length < 1e-6:
+        return None
+    cos_val = max(-1.0, min(1.0, uy / length))
+    return math.degrees(math.acos(cos_val))
+
+
 def build_anonymized_landmark_summary(
     landmarks: list[Any],
     focus_joints: list[int],
@@ -109,6 +121,19 @@ def build_anonymized_landmark_summary(
     if all(_landmark_vis(landmarks[i]) >= min_visibility for i in (12, 14, 16)):
         right_elbow_deg = calculate_joint_angle_degrees(landmarks[12], landmarks[14], landmarks[16])
 
+    # Biomechanical anti-cheat metrics: upper-arm sideways flare & shoulder shrug ratio
+    left_elbow_flare_deg = None
+    if _landmark_vis(l_sh) >= min_visibility and _landmark_vis(landmarks[13]) >= min_visibility:
+        left_elbow_flare_deg = _angle_from_vertical_deg(l_sh, landmarks[13])
+
+    right_elbow_flare_deg = None
+    if _landmark_vis(r_sh) >= min_visibility and _landmark_vis(landmarks[14]) >= min_visibility:
+        right_elbow_flare_deg = _angle_from_vertical_deg(r_sh, landmarks[14])
+
+    shoulder_shrug_ratio = None
+    if _landmark_vis(l_sh) >= min_visibility and _landmark_vis(r_sh) >= min_visibility:
+        shoulder_shrug_ratio = abs(l_sh.y - r_sh.y) / max(abs(r_sh.x - l_sh.x), 1e-4)
+
     return {
         "detected": True,
         "focus_joints": list(focus_joints),
@@ -116,6 +141,9 @@ def build_anonymized_landmark_summary(
         "focus_angle_deg": round(focus_angle_deg, 1) if focus_angle_deg is not None else None,
         "left_elbow_deg": round(left_elbow_deg, 1) if left_elbow_deg is not None else None,
         "right_elbow_deg": round(right_elbow_deg, 1) if right_elbow_deg is not None else None,
+        "left_elbow_flare_deg": round(left_elbow_flare_deg, 1) if left_elbow_flare_deg is not None else None,
+        "right_elbow_flare_deg": round(right_elbow_flare_deg, 1) if right_elbow_flare_deg is not None else None,
+        "shoulder_shrug_ratio": round(shoulder_shrug_ratio, 3) if shoulder_shrug_ratio is not None else None,
         "torso_tilt_deg": round(torso_tilt_deg, 1),
         "spine_lean_deg": round(spine_lean_deg, 1) if hip_visible else None,
         "hip_visible": hip_visible,

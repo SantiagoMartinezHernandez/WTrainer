@@ -7,8 +7,10 @@ startup victory chime once the robot is ready, and forwards complex Q&A or
 routine suggestions (using only anonymized metrics) to Gemini Live API.
 """
 
+import collections
 import json
 import os
+import statistics
 import time
 
 import rclpy
@@ -59,6 +61,8 @@ class RehabCoachNode(Node):
         self.latest_summary: dict = {"detected": False}
         self._startup_announced = False
         self.gemini_online = False
+        self._angle_window = collections.deque(maxlen=5)
+        self._violation_since: dict[str, float] = {}
 
         # Publishers
         self.active_ex_pub = self.create_publisher(String, "/trainerbot/active_exercise", 10)
@@ -181,6 +185,8 @@ class RehabCoachNode(Node):
         self.rep_count = 0
         self.rep_phase = "REST"
         self.rep_start_time = time.monotonic()
+        self._angle_window.clear()
+        self._violation_since.clear()
 
         # Configure PID follower framing for this exercise and enable tracking
         self.active_ex_pub.publish(String(data=json.dumps({
@@ -211,8 +217,67 @@ class RehabCoachNode(Node):
         self._speak_and_display(message, use_local_tts=True)
 
     # -----------------------------------------------------------------
-    # Rehab-First Form & Rep Loop
+    # Rehab-First Biomechanical Constraints & Rep Loop
     # -----------------------------------------------------------------
+    def _update_persistence(self, key: str, violated: bool, now: float, persist_s: float) -> bool:
+        """Return True only once a biomechanical violation persists for `persist_s` seconds."""
+        if not violated:
+            self._violation_since.pop(key, None)
+            return False
+        since = self._violation_since.setdefault(key, now)
+        return (now - since) >= persist_s
+
+    def _check_biomechanics(self, summary: dict, now: float) -> str | None:
+        warnings_cfg = self.active_exercise.get("safety_warnings", {})
+        persist_s = float(warnings_cfg.get("violation_persist_s", 0.7))
+        arm = str(warnings_cfg.get("check_arm", "left")).lower()
+
+        max_tilt = float(warnings_cfg.get("max_torso_tilt_deg", 20.0))
+        torso_tilt = abs(float(summary.get("torso_tilt_deg", 0.0)))
+        if self._update_persistence("torso_tilt", torso_tilt > max_tilt, now, persist_s):
+            return warnings_cfg.get("tilt_warning", "Please keep your torso upright and level.")
+
+        if "max_spine_lean_deg" in warnings_cfg and summary.get("hip_visible") and summary.get("spine_lean_deg") is not None:
+            lean_bad = abs(float(summary["spine_lean_deg"])) > float(warnings_cfg["max_spine_lean_deg"])
+            if self._update_persistence("spine_lean", lean_bad, now, persist_s):
+                return warnings_cfg.get("spine_lean_warning", "Keep your lean smaller to stay safely balanced in your seat.")
+
+        if "max_elbow_flare_deg" in warnings_cfg:
+            flare_deg = summary.get(f"{arm}_elbow_flare_deg")
+            flare_bad = flare_deg is not None and float(flare_deg) > float(warnings_cfg["max_elbow_flare_deg"])
+            if self._update_persistence("elbow_flare", flare_bad, now, persist_s):
+                return warnings_cfg.get(
+                    "elbow_flare_warning",
+                    "Keep your elbow tucked close to your side instead of lifting it out sideways.",
+                )
+
+        if "min_elbow_extension_deg" in warnings_cfg:
+            arm_angle = summary.get(f"{arm}_elbow_deg")
+            bend_bad = arm_angle is not None and float(arm_angle) < float(warnings_cfg["min_elbow_extension_deg"])
+            if self._update_persistence("elbow_bend", bend_bad, now, persist_s):
+                return warnings_cfg.get(
+                    "elbow_bend_warning",
+                    "Keep your arm straighter during the shoulder raise instead of bending your elbow.",
+                )
+
+        if "max_safe_angle_deg" in warnings_cfg and summary.get("focus_angle_deg") is not None:
+            over_bad = float(summary["focus_angle_deg"]) > float(warnings_cfg["max_safe_angle_deg"])
+            if self._update_persistence("over_elevation", over_bad, now, persist_s):
+                return warnings_cfg.get(
+                    "over_elevation_warning",
+                    "Stop at shoulder height to avoid shoulder impingement.",
+                )
+
+        if "max_shoulder_shrug_ratio" in warnings_cfg and summary.get("shoulder_shrug_ratio") is not None:
+            shrug_bad = float(summary["shoulder_shrug_ratio"]) > float(warnings_cfg["max_shoulder_shrug_ratio"])
+            if self._update_persistence("shoulder_shrug", shrug_bad, now, persist_s):
+                return warnings_cfg.get(
+                    "shrug_warning",
+                    "Relax your shoulders downward — avoid shrugging to lift your arm.",
+                )
+
+        return None
+
     def _on_landmarks(self, msg: String):
         try:
             summary = json.loads(msg.data)
@@ -223,14 +288,11 @@ class RehabCoachNode(Node):
         if self.active_exercise is None or not summary.get("detected"):
             return
 
-        # 1. Safety & Posture Checks ALWAYS come before rep counting
+        # 1. Biomechanical & Posture Checks ALWAYS come before rep counting
         warnings_cfg = self.active_exercise.get("safety_warnings", {})
-        max_tilt = float(warnings_cfg.get("max_torso_tilt_deg", 20.0))
-        torso_tilt = abs(float(summary.get("torso_tilt_deg", 0.0)))
-
         now = time.monotonic()
-        if torso_tilt > max_tilt:
-            warn_text = warnings_cfg.get("tilt_warning", "Please keep your torso upright and level.")
+        warn_text = self._check_biomechanics(summary, now)
+        if warn_text is not None:
             self.warning_pub.publish(String(data=f"POSTURE WARNING: {warn_text}"))
             if (now - self.last_warning_time) > 8.0:
                 self.last_warning_time = now
@@ -238,10 +300,12 @@ class RehabCoachNode(Node):
                 self._speak_and_display(warn_text, use_local_tts=True)
             return  # Pause rep progression while form is unsafe
 
-        # 2. Evaluate joint angle progression
-        angle = summary.get("focus_angle_deg")
-        if angle is None:
+        # 2. Evaluate median-smoothed joint angle progression
+        raw_angle = summary.get("focus_angle_deg")
+        if raw_angle is None:
             return
+        self._angle_window.append(float(raw_angle))
+        angle = statistics.median(self._angle_window)
 
         t_min = float(self.active_exercise.get("target_angle_min", 40.0))
         t_max = float(self.active_exercise.get("target_angle_max", 80.0))

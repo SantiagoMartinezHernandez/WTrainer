@@ -38,7 +38,8 @@ source /opt/ros/jazzy/setup.bash
 source "$WS_DIR/install/setup.bash"
 
 LAPTOP_PAT="laptop_brain.launch.py|rosbridge_websocket|rosapi_node|vision_pose_node|rehab_coach_node|gemini_live_node|speaker_node|node-red"
-PI_PAT="robot_bringup|turtlebot3_ros|single_coin_d4_node|usb_cam_node_exe|robot_pid_controller_node|servo_node|mic_node|speaker_node"
+PI_PAT="robot_bringup|all_on_bot|turtlebot3_ros|single_coin_d4_node|ld08_driver|hlds_laser_publisher|robot_state_publisher|usb_cam_node_exe|robot_pid_controller_node|servo_node|mic_node|speaker_node|vision_pose_node|rehab_coach_node|gemini_live_node|rosbridge_websocket|rosapi_node|node-red"
+PI_INT_CMD="pkill -INT -f '${PI_PAT}' 2>/dev/null || true"
 PI_TERM_CMD="pkill -TERM -f '${PI_PAT}' 2>/dev/null || true"
 PI_KILL_CMD="pkill -9 -f '${PI_PAT}' 2>/dev/null || true"
 
@@ -49,9 +50,7 @@ cleanup() {
     kill -TERM "${BRAIN_PID:-}" "${NODERED_PID:-}" "${ROBOT_SSH_PID:-}" 2>/dev/null || true
     pkill -TERM -f "$LAPTOP_PAT" 2>/dev/null || true
     if ssh -o BatchMode=yes -o ConnectTimeout=2 "${ROBOT_USER}@${ROBOT_IP}" true >/dev/null 2>&1; then
-        ssh -o BatchMode=yes -o ConnectTimeout=2 "${ROBOT_USER}@${ROBOT_IP}" "$PI_TERM_CMD" >/dev/null 2>&1 || true
-        sleep 1.5
-        ssh -o BatchMode=yes -o ConnectTimeout=2 "${ROBOT_USER}@${ROBOT_IP}" "$PI_KILL_CMD" >/dev/null 2>&1 || true
+        ssh -o BatchMode=yes -o ConnectTimeout=5 "${ROBOT_USER}@${ROBOT_IP}" "${PI_INT_CMD}; sleep 1.5; ${PI_TERM_CMD}; sleep 1.0; ${PI_KILL_CMD}" >/dev/null 2>&1 || true
     else
         sleep 1.5
     fi

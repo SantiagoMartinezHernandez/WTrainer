@@ -128,6 +128,7 @@ class GeminiLiveNode(Node):
         self.create_subscription(UInt8MultiArray, "/trainerbot/audio_in", self._on_audio_in, 50)
         self.create_subscription(String, "/trainerbot/gemini_prompt", self._on_prompt, 10)
         self.create_subscription(String, "/trainerbot/anonymized_landmarks", self._on_landmarks, 10)
+        self.create_subscription(Bool, "/trainerbot/mic_active", self._on_mic_active, 10)
 
         self._outbound_queue: queue.Queue[tuple[str, object]] = queue.Queue(maxsize=300)
         self._stop_event = threading.Event()
@@ -136,6 +137,7 @@ class GeminiLiveNode(Node):
         self._reply_allowed_until = 0.0
         self._last_wake_chime = 0.0
         self._last_offline_stop = 0.0
+        self._last_partial = ""
         self._pending_audio: list[bytes] = []
         self._gemini_online = False
         self._vosk_lock = threading.Lock()
@@ -178,6 +180,23 @@ class GeminiLiveNode(Node):
     # -----------------------------------------------------------------
     # ROS 2 Callbacks -> Thread-Safe Queue
     # -----------------------------------------------------------------
+    def _on_mic_active(self, msg: Bool):
+        active = bool(msg.data)
+        self._last_partial = ""
+        if active:
+            if self._gemini_online:
+                status = "Mic ON — listening (Gemini Live)"
+            elif self._vosk_recognizer is not None:
+                status = "Mic ON — listening (Offline Vosk)"
+            else:
+                status = "Mic ON — offline STT not installed"
+        else:
+            status = "Mic MUTED"
+            if self._vosk_recognizer is not None:
+                with self._vosk_lock:
+                    self._vosk_recognizer.Reset()
+        self.user_transcript_pub.publish(String(data=status))
+
     def _on_audio_in(self, msg: UInt8MultiArray):
         if msg.data:
             raw = bytes(msg.data)
@@ -198,6 +217,7 @@ class GeminiLiveNode(Node):
                 if self._vosk_recognizer.AcceptWaveform(raw_bytes):
                     res = json.loads(self._vosk_recognizer.Result() or "{}")
                     text = res.get("text", "").strip()
+                    self._last_partial = ""
                     if text:
                         self._handle_transcript(text, is_offline=True)
                 else:
@@ -207,8 +227,12 @@ class GeminiLiveNode(Node):
                         p_tokens = _tokenize(p_lower)
                         if _matches_stop_word(p_lower, p_tokens) and (time.monotonic() - self._last_offline_stop) > 1.2:
                             self._last_offline_stop = time.monotonic()
+                            self._last_partial = ""
                             self._vosk_recognizer.Reset()
                             self._handle_transcript(partial, is_offline=True)
+                        elif partial != self._last_partial:
+                            self._last_partial = partial
+                            self.user_transcript_pub.publish(String(data=f"... {partial}"))
         except Exception as exc:
             self.get_logger().warn(f"Offline Vosk error: {exc}", throttle_duration_sec=5.0)
 

@@ -14,9 +14,15 @@
       "framing_distance_m": 1.40,
       "framing_tilt_offset_deg": 0.0,
       "safety_warnings": {
+        "violation_persist_s": 0.7,
         "max_torso_tilt_deg": 18.0,
+        "check_arm": "left",
+        "max_elbow_flare_deg": 35.0,
+        "max_shoulder_shrug_ratio": 0.20,
         "min_rep_duration_s": 1.2,
         "tilt_warning": "Try to keep your shoulders level and avoid leaning sideways.",
+        "elbow_flare_warning": "Keep your elbow tucked close to your side instead of lifting it out sideways.",
+        "shrug_warning": "Relax your shoulders downward — avoid shrugging to lift your arm.",
         "speed_warning": "Slow down slightly for safe, controlled muscle engagement."
       },
       "cues": {
@@ -43,9 +49,15 @@
       "framing_distance_m": 1.40,
       "framing_tilt_offset_deg": 0.0,
       "safety_warnings": {
+        "violation_persist_s": 0.7,
         "max_torso_tilt_deg": 18.0,
+        "check_arm": "right",
+        "max_elbow_flare_deg": 35.0,
+        "max_shoulder_shrug_ratio": 0.20,
         "min_rep_duration_s": 1.2,
         "tilt_warning": "Keep your chest upright and avoid compensating by tilting your torso.",
+        "elbow_flare_warning": "Keep your elbow tucked close to your side instead of lifting it out sideways.",
+        "shrug_warning": "Relax your shoulders downward — avoid shrugging to lift your arm.",
         "speed_warning": "Move smoothly and avoid rushing the return."
       },
       "cues": {
@@ -72,9 +84,15 @@
       "framing_distance_m": 1.50,
       "framing_tilt_offset_deg": 5.0,
       "safety_warnings": {
+        "violation_persist_s": 0.7,
         "max_torso_tilt_deg": 15.0,
+        "check_arm": "left",
+        "min_elbow_extension_deg": 125.0,
+        "max_safe_angle_deg": 115.0,
         "min_rep_duration_s": 1.5,
         "tilt_warning": "Avoid shrugging or leaning sideways to lift higher; stop at a comfortable height.",
+        "elbow_bend_warning": "Keep your arm straighter during the shoulder raise instead of bending your elbow.",
+        "over_elevation_warning": "Stop at shoulder height to avoid shoulder impingement.",
         "speed_warning": "Lower your arm gently rather than letting it drop."
       },
       "cues": {
@@ -101,9 +119,12 @@
       "framing_distance_m": 1.50,
       "framing_tilt_offset_deg": 0.0,
       "safety_warnings": {
+        "violation_persist_s": 0.7,
         "max_torso_tilt_deg": 25.0,
+        "max_spine_lean_deg": 25.0,
         "min_rep_duration_s": 1.8,
         "tilt_warning": "Keep the lean small and controlled within your wheelchair balance zone.",
+        "spine_lean_warning": "Keep your lean smaller to stay safely balanced in your seat.",
         "speed_warning": "Move slowly so your core muscles stay engaged."
       },
       "cues": {

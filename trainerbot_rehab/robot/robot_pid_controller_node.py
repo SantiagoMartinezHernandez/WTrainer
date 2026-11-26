@@ -346,17 +346,27 @@ class RobotPIDControllerNode(Node):
         error_x = 0.5 - self.target_mid_x
         angular_z = self.yaw_pid.update(error_x, measurement=self.target_mid_x)
 
-        # Camera-framing-first distance control: center X before creeping closer,
-        # and back up if shoulder width fills too much of the frame.
-        if abs(error_x) > 0.12:
-            linear_x = 0.0
+        # Bidirectional camera-first distance control:
+        # 1. If LiDAR OR camera says too close, back away (safety first!)
+        if self.person_distance is not None and self.person_distance < (self.target_distance - 0.12):
+            dist_err = self.person_distance - self.target_distance
+            raw_back = self.dist_pid.update(dist_err, measurement=self.person_distance)
+            linear_x = max(-0.14, min(-0.05, raw_back))
+            linear_x = self._apply_safety_clamps(
+                linear_x, front_limit=self.min_front_safety, rear_limit=self.min_rear_safety
+            )
         elif self.target_shoulder_width is not None and self.target_shoulder_width > self.target_sw_max:
             linear_x = self._apply_safety_clamps(
-                -0.06, front_limit=self.min_front_safety, rear_limit=self.min_rear_safety
+                -0.07, front_limit=self.min_front_safety, rear_limit=self.min_rear_safety
             )
+        # 2. Rotate to center user horizontally before moving closer
+        elif abs(error_x) > 0.12:
+            linear_x = 0.0
+        # 3. Hold position when comfortably framed on camera
         elif self.target_shoulder_width is not None and self.target_shoulder_width >= self.target_sw_min:
             linear_x = 0.0
-        elif self.person_distance is not None:
+        # 4. Approach only if centered and user is still beyond target_distance + 0.12 m
+        elif self.person_distance is not None and self.person_distance > (self.target_distance + 0.12):
             dist_err = self.person_distance - self.target_distance
             linear_x = self.dist_pid.update(dist_err, measurement=self.person_distance)
             linear_x = self._apply_safety_clamps(

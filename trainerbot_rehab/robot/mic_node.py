@@ -6,6 +6,7 @@ chunks to `/trainerbot/audio_in` (`UInt8MultiArray`). Automatically gates out
 audio while `/trainerbot/speaker_busy` is True to prevent acoustic self-echo.
 """
 
+import array
 import re
 import shutil
 import subprocess
@@ -55,6 +56,7 @@ class MicNode(Node):
         self.declare_parameter("chunk_ms", 100)
         self.declare_parameter("echo_holdoff_sec", 0.15)
         self.declare_parameter("start_active", False)
+        self.declare_parameter("software_gain", 4.0)
 
         requested_dev = str(self.get_parameter("alsa_device").value)
         self.alsa_device = _resolve_alsa_device(requested_dev)
@@ -62,6 +64,7 @@ class MicNode(Node):
         self.chunk_ms = int(self.get_parameter("chunk_ms").value)
         self.echo_holdoff_sec = float(self.get_parameter("echo_holdoff_sec").value)
         self.mic_active = bool(self.get_parameter("start_active").value)
+        self.software_gain = max(1.0, min(12.0, float(self.get_parameter("software_gain").value)))
 
         # 2 bytes per S16_LE mono sample
         self.chunk_bytes = int(self.sample_rate * 2 * (self.chunk_ms / 1000.0))
@@ -124,8 +127,19 @@ class MicNode(Node):
                         self.get_logger().info(
                             f"Streaming microphone audio ({self.alsa_device}) to /trainerbot/audio_in."
                         )
+                    if self.software_gain != 1.0 and len(data) >= 2:
+                        usable = len(data) - (len(data) % 2)
+                        pcm = array.array("h")
+                        pcm.frombytes(data[:usable])
+                        gain = self.software_gain
+                        for idx, sample in enumerate(pcm):
+                            scaled = int(sample * gain)
+                            pcm[idx] = 32767 if scaled > 32767 else (-32768 if scaled < -32768 else scaled)
+                        out_bytes = pcm.tobytes()
+                    else:
+                        out_bytes = data
                     msg = UInt8MultiArray()
-                    msg.data = list(data)
+                    msg.data = list(out_bytes)
                     self.audio_pub.publish(msg)
             except Exception as exc:
                 self.get_logger().warn(f"arecord error ({self.alsa_device}): {exc}", throttle_duration_sec=5.0)
