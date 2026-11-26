@@ -36,6 +36,7 @@ def generate_launch_description():
     start_following_arg = DeclareLaunchArgument("start_following", default_value="false")
     target_distance_arg = DeclareLaunchArgument("target_distance", default_value="1.40")
     camera_reversed_arg = DeclareLaunchArgument("camera_reversed", default_value="true")
+    enable_vision_arg = DeclareLaunchArgument("enable_vision", default_value="true")
 
     turtlebot_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -115,6 +116,7 @@ def generate_launch_description():
         executable="vision_pose_node",
         name="vision_pose_node",
         output="screen",
+        condition=IfCondition(LaunchConfiguration("enable_vision")),
     )
 
     rehab_coach_node = Node(
@@ -158,6 +160,7 @@ def generate_launch_description():
         start_following_arg,
         target_distance_arg,
         camera_reversed_arg,
+        enable_vision_arg,
         turtlebot_launch,
         usb_cam_node,
         robot_pid_controller_node,
