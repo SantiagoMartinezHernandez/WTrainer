@@ -533,7 +533,7 @@
         "type": "ui-switch",
         "z": "c3799b409478841a",
         "name": "Voice Mic Active",
-        "label": "Robot Microphone Listening",
+        "label": "AI Voice Mic (ON + say 'Turtle ...')",
         "group": "2401841e93bdb44b",
         "order": 10,
         "width": 6,
@@ -619,18 +619,16 @@
     },
     {
         "id": "0931ac2f98ed98fa",
-        "type": "change",
+        "type": "function",
         "z": "c3799b409478841a",
-        "name": "Extract angle number",
-        "rules": [
-            {
-                "t": "set",
-                "p": "payload",
-                "pt": "msg",
-                "to": "payload.data",
-                "tot": "msg"
-            }
-        ],
+        "name": "Format angle (2 decimals)",
+        "func": "const v = Number(msg.payload?.data);\nif (!Number.isFinite(v)) return null;\nmsg.payload = Number(v.toFixed(2));\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
         "x": 380,
         "y": 560,
         "wires": [
@@ -902,6 +900,61 @@
         "templateScope": "local",
         "x": 660,
         "y": 800,
+        "wires": []
+    },
+    {
+        "id": "sub-user-tx",
+        "type": "ros2-subscribe",
+        "z": "c3799b409478841a",
+        "name": "User voice transcript",
+        "connection": "7d9dc504611d3fc2",
+        "topic": "/trainerbot/user_transcript",
+        "rosType": "std_msgs/msg/String",
+        "qos": "auto",
+        "x": 160,
+        "y": 890,
+        "wires": [
+            [
+                "chg-user-tx"
+            ]
+        ]
+    },
+    {
+        "id": "chg-user-tx",
+        "type": "change",
+        "z": "c3799b409478841a",
+        "name": "Extract user speech",
+        "rules": [
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "payload.data",
+                "tot": "msg"
+            }
+        ],
+        "x": 380,
+        "y": 890,
+        "wires": [
+            [
+                "txt-user-tx"
+            ]
+        ]
+    },
+    {
+        "id": "txt-user-tx",
+        "type": "ui-text",
+        "z": "c3799b409478841a",
+        "group": "robot-camera-group",
+        "order": 2,
+        "width": 6,
+        "height": 1,
+        "name": "Heard (Mic Debug)",
+        "label": "Heard (Mic Debug)",
+        "format": "{{msg.payload}}",
+        "layout": "row-spread",
+        "x": 600,
+        "y": 890,
         "wires": []
     },
     {

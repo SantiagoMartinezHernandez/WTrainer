@@ -37,7 +37,10 @@ SYSTEM_INSTRUCTION = (
     "(2) Keep spoken replies concise (1-3 sentences) and encouraging; "
     "(3) If the user feels pain, fatigue, or says stop, tell them to rest immediately; "
     "(4) You only receive anonymized MediaPipe joint angles and exercise catalog summaries — "
-    "never ask for or store personally identifiable medical data."
+    "never ask for or store personally identifiable medical data; "
+    "(5) Stay COMPLETELY SILENT unless the user explicitly says the wake word 'turtle' "
+    "(or 'trainerbot'), says an urgent safety word ('stop', 'halt', 'pause', 'pain', 'help'), "
+    "or a dashboard button prompt is sent. Never talk back to background chatter."
 )
 
 
@@ -74,6 +77,7 @@ class GeminiLiveNode(Node):
         self.interrupt_pub = self.create_publisher(Bool, "/trainerbot/audio_interrupt", 10)
         self.coach_msg_pub = self.create_publisher(String, "/trainerbot/coach_message", 10)
         self.voice_cmd_pub = self.create_publisher(String, "/trainerbot/voice_command", 10)
+        self.user_transcript_pub = self.create_publisher(String, "/trainerbot/user_transcript", 10)
 
         # Subscriptions
         self.create_subscription(UInt8MultiArray, "/trainerbot/audio_in", self._on_audio_in, 50)
@@ -84,6 +88,7 @@ class GeminiLiveNode(Node):
         self._stop_event = threading.Event()
         self._last_context_push = 0.0
         self._logged_first_audio_in = False
+        self._reply_allowed_until = 0.0
 
         if not HAS_GENAI:
             self.get_logger().error("`google-genai` SDK not installed. Run: pip install -U google-genai")
@@ -115,6 +120,7 @@ class GeminiLiveNode(Node):
     def _on_prompt(self, msg: String):
         text = msg.data.strip()
         if text:
+            self._reply_allowed_until = time.monotonic() + 20.0
             self._enqueue("text", text)
 
     def _on_landmarks(self, msg: String):
@@ -206,9 +212,24 @@ class GeminiLiveNode(Node):
             if getattr(content, "interrupted", False) is True:
                 self.interrupt_pub.publish(Bool(data=True))
 
+            in_tx = getattr(content, "input_transcription", None)
+            if in_tx and getattr(in_tx, "text", None):
+                transcript = in_tx.text.strip()
+                self.get_logger().info(f"User voice transcript: {transcript}")
+                self.user_transcript_pub.publish(String(data=transcript))
+                lower_tx = transcript.lower()
+                if any(
+                    w in lower_tx
+                    for w in ("turtle", "trainerbot", "stop", "halt", "pause", "pain", "help")
+                ):
+                    self._reply_allowed_until = time.monotonic() + 20.0
+                self._detect_voice_commands(transcript)
+
+            reply_allowed = time.monotonic() <= self._reply_allowed_until
+
             # Process ALL parts in model_turn (audio + optional text)
             model_turn = getattr(content, "model_turn", None)
-            if model_turn and getattr(model_turn, "parts", None):
+            if reply_allowed and model_turn and getattr(model_turn, "parts", None):
                 for part in model_turn.parts:
                     inline = getattr(part, "inline_data", None)
                     if inline and getattr(inline, "data", None):
@@ -216,13 +237,8 @@ class GeminiLiveNode(Node):
                         out_msg.data = list(inline.data)
                         self.audio_out_pub.publish(out_msg)
 
-            in_tx = getattr(content, "input_transcription", None)
-            if in_tx and getattr(in_tx, "text", None):
-                self.get_logger().info(f"User voice transcript: {in_tx.text.strip()}")
-                self._detect_voice_commands(in_tx.text)
-
             out_tx = getattr(content, "output_transcription", None)
-            if out_tx and getattr(out_tx, "text", None):
+            if reply_allowed and out_tx and getattr(out_tx, "text", None):
                 self.coach_msg_pub.publish(String(data=out_tx.text.strip()))
 
     def _detect_voice_commands(self, transcript: str):

@@ -232,8 +232,9 @@ class VisionPoseNode(Node):
 
                 focus_angle = summary.get("focus_angle_deg")
                 if focus_angle is not None:
-                    self.angle_pub.publish(Float32(data=float(focus_angle)))
-                    status_text = f"{self.active_exercise_name}: {focus_angle:.0f} deg"
+                    rounded_angle = round(float(focus_angle), 2)
+                    self.angle_pub.publish(Float32(data=rounded_angle))
+                    status_text = f"{self.active_exercise_name}: {rounded_angle:.2f} deg"
                 else:
                     status_text = f"Framing user (show joints {self.focus_joints})"
 

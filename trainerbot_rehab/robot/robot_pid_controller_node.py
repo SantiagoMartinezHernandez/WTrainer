@@ -53,6 +53,9 @@ class RobotPIDControllerNode(Node):
         self.declare_parameter("cluster_threshold", 0.35)
         self.declare_parameter("min_front_safety_dist", 0.90)
         self.declare_parameter("min_rear_safety_dist", 0.40)
+        self.declare_parameter("min_manual_safety_dist", 0.25)
+        self.declare_parameter("target_shoulder_width_min", 0.20)
+        self.declare_parameter("target_shoulder_width_max", 0.34)
         self.declare_parameter("watchdog_timeout_sec", 1.8)
 
         self.follow_enabled = bool(self.get_parameter("start_following").value)
@@ -62,6 +65,9 @@ class RobotPIDControllerNode(Node):
         self.cluster_threshold = float(self.get_parameter("cluster_threshold").value)
         self.min_front_safety = float(self.get_parameter("min_front_safety_dist").value)
         self.min_rear_safety = float(self.get_parameter("min_rear_safety_dist").value)
+        self.min_manual_safety = float(self.get_parameter("min_manual_safety_dist").value)
+        self.target_sw_min = float(self.get_parameter("target_shoulder_width_min").value)
+        self.target_sw_max = float(self.get_parameter("target_shoulder_width_max").value)
         self.watchdog_timeout = float(self.get_parameter("watchdog_timeout_sec").value)
 
         # Smooth PID controllers
@@ -85,6 +91,7 @@ class RobotPIDControllerNode(Node):
         self.person_detected = False
         self.target_mid_x = None
         self.target_mid_y = None
+        self.target_shoulder_width = None
         self.target_half_span = math.radians(10.0)
         self.last_obs_time = 0.0
         self._watchdog_tripped = False
@@ -212,10 +219,8 @@ class RobotPIDControllerNode(Node):
 
         self.target_mid_x = mid_x
         self.target_mid_y = mid_y
-        self.target_half_span = max(
-            math.radians(7.0),
-            (shoulder_w / 2.0) * self.hfov_rad + math.radians(5.0),
-        )
+        self.target_shoulder_width = shoulder_w
+        self.target_half_span = math.radians(10.0)
         self.last_obs_time = time.monotonic()
         self._watchdog_tripped = False
 
@@ -242,11 +247,11 @@ class RobotPIDControllerNode(Node):
             return
 
         target_bearing = (0.5 - self.target_mid_x) * self.hfov_rad
-        half_span = self.target_half_span
+        half_span = math.radians(10.0)
 
         valid_ranges = []
         for i, r in enumerate(scan_msg.ranges):
-            if not math.isfinite(r) or r < scan_msg.range_min or r > scan_msg.range_max or r < 0.08:
+            if not math.isfinite(r) or r < scan_msg.range_min or r > scan_msg.range_max or r < 0.14:
                 continue
             angle = scan_msg.angle_min + i * scan_msg.angle_increment
             angle_norm = (angle + math.pi) % (2.0 * math.pi) - math.pi
@@ -279,9 +284,13 @@ class RobotPIDControllerNode(Node):
     def _control_loop(self):
         now = time.monotonic()
 
-        # Priority 1: Manual drive button override (still clamped by LiDAR safety!)
+        # Priority 1: Manual drive button override (bump-guard 0.25m clamp only)
         if now < self.manual_until:
-            vx = self._apply_safety_clamps(self.manual_linear_x)
+            vx = self._apply_safety_clamps(
+                self.manual_linear_x,
+                front_limit=self.min_manual_safety,
+                rear_limit=self.min_manual_safety,
+            )
             wz = self.manual_angular_z
             self.cmd_linear_x, self.cmd_angular_z = vx, wz
             self._publish_velocity(vx, wz)
@@ -311,27 +320,47 @@ class RobotPIDControllerNode(Node):
         error_x = 0.5 - self.target_mid_x
         angular_z = self.yaw_pid.update(error_x, measurement=self.target_mid_x)
 
-        if self.person_distance is not None:
+        # Camera-framing-first distance control: center X before creeping closer,
+        # and back up if shoulder width fills too much of the frame.
+        if abs(error_x) > 0.12:
+            linear_x = 0.0
+        elif self.target_shoulder_width is not None and self.target_shoulder_width > self.target_sw_max:
+            linear_x = self._apply_safety_clamps(
+                -0.06, front_limit=self.min_front_safety, rear_limit=self.min_rear_safety
+            )
+        elif self.target_shoulder_width is not None and self.target_shoulder_width >= self.target_sw_min:
+            linear_x = 0.0
+        elif self.person_distance is not None:
             dist_err = self.person_distance - self.target_distance
             linear_x = self.dist_pid.update(dist_err, measurement=self.person_distance)
+            linear_x = self._apply_safety_clamps(
+                linear_x, front_limit=self.min_front_safety, rear_limit=self.min_rear_safety
+            )
         else:
             linear_x = 0.0
 
-        linear_x = self._apply_safety_clamps(linear_x)
         self.cmd_linear_x = linear_x
         self.cmd_angular_z = angular_z
         self._publish_velocity(linear_x, angular_z)
 
-    def _apply_safety_clamps(self, desired_linear_x: float) -> float:
+    def _apply_safety_clamps(
+        self,
+        desired_linear_x: float,
+        front_limit: float | None = None,
+        rear_limit: float | None = None,
+    ) -> float:
         if self.latest_scan is None:
             return desired_linear_x
+
+        front_thresh = self.min_front_safety if front_limit is None else front_limit
+        rear_thresh = self.min_rear_safety if rear_limit is None else rear_limit
 
         min_front = float("inf")
         min_rear = float("inf")
         scan = self.latest_scan
 
         for i, r in enumerate(scan.ranges):
-            if not math.isfinite(r) or r < scan.range_min or r > scan.range_max or r < 0.05:
+            if not math.isfinite(r) or r < scan.range_min or r > scan.range_max or r < 0.14:
                 continue
             angle = scan.angle_min + i * scan.angle_increment
             angle_norm = (angle + math.pi) % (2.0 * math.pi) - math.pi
@@ -340,15 +369,15 @@ class RobotPIDControllerNode(Node):
             if abs(angle_norm) >= 2.62 and r < min_rear:
                 min_rear = r
 
-        if min_front < self.min_front_safety and desired_linear_x > 0.0:
+        if min_front < front_thresh and desired_linear_x > 0.0:
             self.get_logger().warn(
-                f"Local LiDAR safety stop: front obstacle at {min_front:.2f}m",
+                f"Local LiDAR safety stop: front obstacle at {min_front:.2f}m (< {front_thresh:.2f}m)",
                 throttle_duration_sec=2.0,
             )
             return 0.0
-        if min_rear < self.min_rear_safety and desired_linear_x < 0.0:
+        if min_rear < rear_thresh and desired_linear_x < 0.0:
             self.get_logger().warn(
-                f"Local LiDAR safety stop: rear obstacle at {min_rear:.2f}m",
+                f"Local LiDAR safety stop: rear obstacle at {min_rear:.2f}m (< {rear_thresh:.2f}m)",
                 throttle_duration_sec=2.0,
             )
             return 0.0

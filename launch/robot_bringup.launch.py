@@ -23,6 +23,7 @@ def generate_launch_description():
     servo_type_arg = DeclareLaunchArgument("servo_type", default_value="pwm")
     gpio_pin_arg = DeclareLaunchArgument("gpio_pin", default_value="12")
     alsa_mic_arg = DeclareLaunchArgument("alsa_mic", default_value="auto")
+    mic_start_active_arg = DeclareLaunchArgument("mic_start_active", default_value="false")
     alsa_speaker_arg = DeclareLaunchArgument("alsa_speaker", default_value="default")
     enable_speaker_arg = DeclareLaunchArgument("enable_speaker", default_value="false")
     speaker_mode_arg = DeclareLaunchArgument("speaker_mode", default_value="alsa")
@@ -98,6 +99,7 @@ def generate_launch_description():
         parameters=[{
             "alsa_device": LaunchConfiguration("alsa_mic"),
             "sample_rate": 16000,
+            "start_active": LaunchConfiguration("mic_start_active"),
         }],
     )
 
@@ -105,6 +107,7 @@ def generate_launch_description():
         servo_type_arg,
         gpio_pin_arg,
         alsa_mic_arg,
+        mic_start_active_arg,
         alsa_speaker_arg,
         enable_speaker_arg,
         speaker_mode_arg,
