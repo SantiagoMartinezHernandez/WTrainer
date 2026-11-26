@@ -26,14 +26,14 @@
         "speed_warning": "Slow down slightly for safe, controlled muscle engagement."
       },
       "cues": {
-        "start": "Starting Left Elbow Flexion. Keep your shoulders relaxed, bend your arm slowly toward your shoulder, and say stop anytime.",
-        "flexed": "Great reach! Now slowly lower your forearm back down.",
+        "start": "Starting Left Elbow Flexion. Face the camera with your left arm hanging straight down and your upper arm pinned to your side, then slowly curl only your hand upward toward your left shoulder, pause, and lower slowly back straight. Say stop anytime.",
+        "flexed": "Great reach! Hold briefly, then slowly lower your forearm all the way back down.",
         "rep_done": "Good controlled repetition.",
         "completed": "Exercise complete! Wonderful focus on form and safety."
       },
       "faq": {
         "purpose": "This exercise strengthens your left biceps and preserves elbow range of motion without straining your back.",
-        "form": "Keep your upper arm close to your side, shoulders level, and move smoothly through a comfortable range."
+        "form": "Face the camera sitting upright, pin your left upper arm vertically against your ribs, keep your shoulders level, and bend only at the elbow from a straight arm down toward your shoulder without lifting your elbow sideways."
       }
     },
     {
@@ -61,14 +61,14 @@
         "speed_warning": "Move smoothly and avoid rushing the return."
       },
       "cues": {
-        "start": "Starting Right Elbow Flexion. Sit tall and curl your right forearm slowly upward.",
-        "flexed": "Nice control! Slowly lower your arm back to the resting position.",
+        "start": "Starting Right Elbow Flexion. Face the camera with your right arm hanging straight down and your elbow tucked against your ribs, slowly curl your forearm upward toward your right shoulder, then lower back down smoothly.",
+        "flexed": "Nice control! Slowly lower your arm all the way back to straight.",
         "rep_done": "Well done, smooth repetition.",
         "completed": "Right Elbow Flexion finished safely!"
       },
       "faq": {
         "purpose": "Maintains right upper-arm strength and elbow joint flexibility from a seated position.",
-        "form": "Keep your elbow tucked near your ribcage and breathe steadily."
+        "form": "Sit upright facing the camera, pin your right elbow beside your ribcage without flaring it sideways, keep your shoulders relaxed, and curl smoothly from straight to your shoulder."
       }
     },
     {
@@ -96,14 +96,14 @@
         "speed_warning": "Lower your arm gently rather than letting it drop."
       },
       "cues": {
-        "start": "Starting Seated Shoulder Raise. Raise your left arm out to the side up to shoulder height, only as high as is comfortable.",
-        "flexed": "Great height! Pause briefly, then lower your arm slowly.",
+        "start": "Starting Seated Shoulder Raise. Sit facing the camera with your left arm straight at your side, slowly lift your straight arm out sideways until it is level with your shoulder like a T shape, pause, and lower gently.",
+        "flexed": "Great shoulder height! Pause briefly, then lower your arm slowly back to your side.",
         "rep_done": "Controlled shoulder raise counted.",
         "completed": "Shoulder raise session complete! Great posture."
       },
       "faq": {
         "purpose": "Builds shoulder stability and upper-torso support important for wheelchair propulsion and transfers.",
-        "form": "Raise only up to shoulder level with your thumb pointing up or forward, keeping your neck relaxed."
+        "form": "Keep your torso upright without leaning, keep your elbow straight as you lift out sideways, and stop right at shoulder height instead of raising overhead."
       }
     },
     {
@@ -128,14 +128,14 @@
         "speed_warning": "Move slowly so your core muscles stay engaged."
       },
       "cues": {
-        "start": "Starting Seated Core Reach. Make sure your wheelchair brakes are locked, gently lean slightly to the side, then return upright.",
-        "flexed": "Good core engagement! Slowly bring your shoulders back to level.",
+        "start": "Starting Seated Core Reach. Lock your wheelchair brakes, sit tall facing the camera with your hips planted, gently lean your upper body slightly to one side, pause, and return smoothly upright to center.",
+        "flexed": "Good core engagement! Slowly bring your shoulders back upright and level.",
         "rep_done": "Safe, balanced repetition.",
         "completed": "Core stability exercise complete!"
       },
       "faq": {
         "purpose": "Trains lateral core and trunk control safely while seated.",
-        "form": "Ensure brakes are locked, keep hips planted, and only lean within a safe, pain-free angle."
+        "form": "Ensure brakes are locked, keep both hips planted evenly on your seat, and keep the sideways reach small and controlled within your balance zone."
       }
     }
   ]
