@@ -23,8 +23,7 @@ elif [ -f "$WS_DIR/.env" ]; then
     source "$WS_DIR/.env"
     set +a
 else
-    echo "[ERROR] Missing .env file! Copy .env.example to .env and add your GEMINI_API_KEY."
-    exit 1
+    echo "[WARN] No .env file found; continuing in offline/local coaching mode (Gemini Live disabled)."
 fi
 
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-108}"

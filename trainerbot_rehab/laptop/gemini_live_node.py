@@ -20,7 +20,14 @@ import time
 from dotenv import load_dotenv
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import Bool, String, UInt8MultiArray
+
+try:
+    import vosk
+    HAS_VOSK = True
+except ImportError:
+    HAS_VOSK = False
 
 try:
     from google import genai
@@ -102,11 +109,20 @@ class GeminiLiveNode(Node):
         # Publishers
         self.audio_out_pub = self.create_publisher(UInt8MultiArray, "/trainerbot/audio_out", 50)
         self.interrupt_pub = self.create_publisher(Bool, "/trainerbot/audio_interrupt", 10)
+        online_qos = QoSProfile(
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+        )
         self.coach_msg_pub = self.create_publisher(String, "/trainerbot/coach_message", 10)
         self.voice_cmd_pub = self.create_publisher(String, "/trainerbot/voice_command", 10)
         self.user_transcript_pub = self.create_publisher(String, "/trainerbot/user_transcript", 10)
         self.sound_pub = self.create_publisher(String, "/trainerbot/play_sound", 10)
         self.follow_pub = self.create_publisher(Bool, "/trainerbot/follow_enable", 10)
+        self.tts_pub = self.create_publisher(String, "/trainerbot/tts_text", 10)
+        self.gemini_online_pub = self.create_publisher(Bool, "/trainerbot/gemini_online", online_qos)
+        self.gemini_online_pub.publish(Bool(data=False))
 
         # Subscriptions
         self.create_subscription(UInt8MultiArray, "/trainerbot/audio_in", self._on_audio_in, 50)
@@ -119,34 +135,82 @@ class GeminiLiveNode(Node):
         self._logged_first_audio_in = False
         self._reply_allowed_until = 0.0
         self._last_wake_chime = 0.0
+        self._last_offline_stop = 0.0
         self._pending_audio: list[bytes] = []
+        self._gemini_online = False
+        self._vosk_lock = threading.Lock()
+        self._vosk_recognizer = self._init_vosk()
 
-        if not HAS_GENAI:
-            self.get_logger().error("`google-genai` SDK not installed. Run: pip install -U google-genai")
-            return
-        if not self.api_key or self.api_key == "your_api_key_here":
-            self.get_logger().error(
-                "GEMINI_API_KEY missing! Create a .env file from .env.example (never commit .env)."
+        if not HAS_GENAI or not self.api_key or self.api_key == "your_api_key_here":
+            self.get_logger().warn(
+                "Gemini Live disabled (missing GEMINI_API_KEY or google-genai); running in local/offline mode."
             )
-            return
+        else:
+            self.get_logger().info(
+                f"gemini_live_node starting (model={self.model}, env_loaded={env_file is not None})"
+            )
+            self._worker = threading.Thread(target=self._run_async_loop, daemon=True)
+            self._worker.start()
 
-        self.get_logger().info(
-            f"gemini_live_node starting (model={self.model}, env_loaded={env_file is not None})"
-        )
-        self._worker = threading.Thread(target=self._run_async_loop, daemon=True)
-        self._worker.start()
+    def _init_vosk(self):
+        """Initialize optional offline Vosk recognizer for no-WiFi lab operation."""
+        model_dir = os.getenv("VOSK_MODEL_PATH") or os.path.expanduser("~/.cache/trainerbot_vosk/model")
+        if not HAS_VOSK:
+            self.get_logger().info(
+                "Offline Vosk STT not installed (optional: pip install vosk && python3 scripts/precache_uk_voice.py --with-vosk)."
+            )
+            return None
+        if not os.path.isdir(model_dir):
+            self.get_logger().info(
+                f"No offline Vosk model at {model_dir} (optional: run precache_uk_voice.py --with-vosk)."
+            )
+            return None
+        try:
+            vosk.SetLogLevel(-1)
+            model = vosk.Model(model_dir)
+            rec = vosk.KaldiRecognizer(model, 16000)
+            self.get_logger().info(f"Offline Vosk STT ready ({model_dir}) for no-WiFi lab mode.")
+            return rec
+        except Exception as exc:
+            self.get_logger().warn(f"Failed to load offline Vosk model: {exc}")
+            return None
 
     # -----------------------------------------------------------------
     # ROS 2 Callbacks -> Thread-Safe Queue
     # -----------------------------------------------------------------
     def _on_audio_in(self, msg: UInt8MultiArray):
         if msg.data:
+            raw = bytes(msg.data)
             if not self._logged_first_audio_in:
                 self._logged_first_audio_in = True
+                mode = "Gemini Live" if self._gemini_online else "Offline STT"
                 self.get_logger().info(
-                    "Receiving Pi microphone audio (/trainerbot/audio_in) -> streaming to Gemini Live."
+                    f"Receiving Pi microphone audio (/trainerbot/audio_in) -> {mode}."
                 )
-            self._enqueue("audio", bytes(msg.data))
+            if self._gemini_online:
+                self._enqueue("audio", raw)
+            elif self._vosk_recognizer is not None:
+                self._process_vosk_audio(raw)
+
+    def _process_vosk_audio(self, raw_bytes: bytes):
+        try:
+            with self._vosk_lock:
+                if self._vosk_recognizer.AcceptWaveform(raw_bytes):
+                    res = json.loads(self._vosk_recognizer.Result() or "{}")
+                    text = res.get("text", "").strip()
+                    if text:
+                        self._handle_transcript(text, is_offline=True)
+                else:
+                    partial = json.loads(self._vosk_recognizer.PartialResult() or "{}").get("partial", "").strip()
+                    if partial:
+                        p_lower = partial.lower()
+                        p_tokens = _tokenize(p_lower)
+                        if _matches_stop_word(p_lower, p_tokens) and (time.monotonic() - self._last_offline_stop) > 1.2:
+                            self._last_offline_stop = time.monotonic()
+                            self._vosk_recognizer.Reset()
+                            self._handle_transcript(partial, is_offline=True)
+        except Exception as exc:
+            self.get_logger().warn(f"Offline Vosk error: {exc}", throttle_duration_sec=5.0)
 
     def _on_prompt(self, msg: String):
         text = msg.data.strip()
@@ -193,6 +257,8 @@ class GeminiLiveNode(Node):
         while not self._stop_event.is_set():
             try:
                 async with client.aio.live.connect(model=self.model, config=config) as session:
+                    self._gemini_online = True
+                    self.gemini_online_pub.publish(Bool(data=True))
                     self.get_logger().info(f"Connected to Gemini Live session ({self.model}).")
                     sender = asyncio.create_task(self._send_loop(session))
                     receiver = asyncio.create_task(self._receive_loop(session))
@@ -202,8 +268,12 @@ class GeminiLiveNode(Node):
                     for task in pending:
                         task.cancel()
             except Exception as exc:
-                self.get_logger().warn(f"Gemini Live session reconnecting after error: {exc}")
-                await asyncio.sleep(3.0)
+                self.get_logger().warn(f"Gemini Live session offline/reconnecting: {exc}")
+            finally:
+                if self._gemini_online:
+                    self._gemini_online = False
+                    self.gemini_online_pub.publish(Bool(data=False))
+            await asyncio.sleep(3.0)
 
     async def _send_loop(self, session):
         loop = asyncio.get_running_loop()
@@ -242,39 +312,7 @@ class GeminiLiveNode(Node):
 
             in_tx = getattr(content, "input_transcription", None)
             if in_tx and getattr(in_tx, "text", None):
-                transcript = in_tx.text.strip()
-                self.get_logger().info(f"User voice transcript: {transcript}")
-                lower_tx = transcript.lower()
-                tokens = _tokenize(lower_tx)
-
-                if _matches_stop_word(lower_tx, tokens):
-                    # Priority 1: immediate stop before any wake/reply handling
-                    self._pending_audio.clear()
-                    self._reply_allowed_until = 0.0
-                    self.interrupt_pub.publish(Bool(data=True))
-                    self.follow_pub.publish(Bool(data=False))
-                    self.voice_cmd_pub.publish(String(data="stop"))
-                    self.user_transcript_pub.publish(String(data=f"[STOP] {transcript}"))
-                    self.get_logger().info("Mic PRIORITY STOP triggered!")
-                elif _matches_wake_word(lower_tx, tokens) or any(
-                    w in tokens for w in ("pain", "help")
-                ):
-                    # Priority 2: wake word or pain/help opens Gemini voice window
-                    now = time.monotonic()
-                    self._reply_allowed_until = now + 25.0
-                    if (now - self._last_wake_chime) > 3.0:
-                        self._last_wake_chime = now
-                        self.sound_pub.publish(String(data="wake"))
-                    for buffered in self._pending_audio:
-                        out_msg = UInt8MultiArray()
-                        out_msg.data = list(buffered)
-                        self.audio_out_pub.publish(out_msg)
-                    self._pending_audio.clear()
-                    self.user_transcript_pub.publish(String(data=f"[WAKE] {transcript}"))
-                    self._detect_voice_commands(lower_tx, tokens)
-                else:
-                    self.user_transcript_pub.publish(String(data=transcript))
-                    self._detect_voice_commands(lower_tx, tokens)
+                self._handle_transcript(in_tx.text.strip(), is_offline=False)
 
             reply_allowed = time.monotonic() <= self._reply_allowed_until
 
@@ -298,19 +336,76 @@ class GeminiLiveNode(Node):
             if getattr(content, "turn_complete", False) is True:
                 self._pending_audio.clear()
 
-    def _detect_voice_commands(self, lower_text: str, tokens: list[str]):
+    def _handle_transcript(self, transcript: str, is_offline: bool = False):
+        if not transcript:
+            return
+        prefix = "Offline voice" if is_offline else "User voice"
+        self.get_logger().info(f"{prefix} transcript: {transcript}")
+        lower_tx = transcript.lower()
+        tokens = _tokenize(lower_tx)
+
+        if _matches_stop_word(lower_tx, tokens):
+            # Priority 1: immediate stop before any wake/reply handling
+            if is_offline:
+                self._last_offline_stop = time.monotonic()
+            self._pending_audio.clear()
+            self._reply_allowed_until = 0.0
+            self.interrupt_pub.publish(Bool(data=True))
+            self.follow_pub.publish(Bool(data=False))
+            self.voice_cmd_pub.publish(String(data="stop"))
+            self.user_transcript_pub.publish(String(data=f"[STOP] {transcript}"))
+            self.get_logger().info("Mic PRIORITY STOP triggered!")
+            return
+
+        if _matches_wake_word(lower_tx, tokens) or any(w in tokens for w in ("pain", "help")):
+            # Priority 2: wake word or pain/help
+            now = time.monotonic()
+            if (now - self._last_wake_chime) > 3.0:
+                self._last_wake_chime = now
+                self.sound_pub.publish(String(data="wake"))
+            if not is_offline:
+                self._reply_allowed_until = now + 25.0
+                for buffered in self._pending_audio:
+                    out_msg = UInt8MultiArray()
+                    out_msg.data = list(buffered)
+                    self.audio_out_pub.publish(out_msg)
+                self._pending_audio.clear()
+            self.user_transcript_pub.publish(String(data=f"[WAKE] {transcript}"))
+            matched = self._detect_voice_commands(lower_tx, tokens)
+            if is_offline and not matched:
+                prompt_msg = (
+                    "I am listening in offline lab mode. "
+                    "Say left elbow, right elbow, shoulder raise, core reach, details, routine, or stop."
+                )
+                self.coach_msg_pub.publish(String(data=prompt_msg))
+                self.tts_pub.publish(String(data=prompt_msg))
+            return
+
+        self.user_transcript_pub.publish(String(data=transcript))
+        self._detect_voice_commands(lower_tx, tokens)
+
+    def _detect_voice_commands(self, lower_text: str, tokens: list[str]) -> str | None:
         cmd = None
         if _matches_stop_word(lower_text, tokens):
             cmd = "stop"
-        elif "more details" in lower_text or "explain more" in lower_text:
+        elif "more details" in lower_text or "explain more" in lower_text or "details" in tokens:
             cmd = "more_details"
-        elif "suggest" in lower_text and "routine" in lower_text:
+        elif ("suggest" in lower_text and "routine" in lower_text) or "routine" in tokens:
             cmd = "suggest_routine"
+        elif "left elbow" in lower_text:
+            cmd = "left_elbow_flexion"
+        elif "right elbow" in lower_text:
+            cmd = "right_elbow_flexion"
+        elif "shoulder" in tokens:
+            cmd = "shoulder_abduction"
+        elif "core" in tokens or "lean" in tokens:
+            cmd = "seated_core_lean"
         elif any(w in tokens for w in ("start", "begin")):
             cmd = "start"
         if cmd:
             self.get_logger().info(f"Voice command detected -> /trainerbot/voice_command: {cmd}")
             self.voice_cmd_pub.publish(String(data=cmd))
+        return cmd
 
     def destroy_node(self):
         self._stop_event.set()

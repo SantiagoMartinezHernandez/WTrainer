@@ -8,6 +8,7 @@ amp (or optional USB/I2S ALSA output). Uses standard Linux ALSA `aplay` and
 are needed on the 1 GB RAM Raspberry Pi.
 """
 
+import hashlib
 import math
 import os
 import queue
@@ -27,6 +28,12 @@ try:
     HAS_GTTS = True
 except ImportError:
     HAS_GTTS = False
+
+
+def _tts_cache_key(text: str, lang: str, tld: str) -> str:
+    """Deterministic cache filename for pre-cached offline Google UK MP3 clips."""
+    digest = hashlib.sha1(f"{lang}|{tld}|{text.strip().lower()}".encode("utf-8")).hexdigest()[:16]
+    return f"{digest}.mp3"
 
 
 def _synthesize_tone_pcm(notes: list[tuple[float, float]], sample_rate: int = 24000) -> bytes:
@@ -285,9 +292,7 @@ class SpeakerNode(Node):
             with self._speech_lock:
                 self._set_busy(1)
                 try:
-                    played_gtts = False
-                    if self.tts_engine == "gtts" and HAS_GTTS and (self.has_ffmpeg or self.has_mpg123):
-                        played_gtts = self._play_gtts(text)
+                    played_gtts = self._play_gtts(text)
 
                     if not played_gtts:
                         if self.tts_bin and (self.use_pulse or self.has_aplay):
@@ -310,33 +315,67 @@ class SpeakerNode(Node):
                 finally:
                     self._set_busy(-1)
 
+    def _play_mp3_file(self, mp3_path: str) -> bool:
+        """Decode and play an MP3 clip through PulseAudio/ALSA or mpg123."""
+        if self.has_ffmpeg and (self.use_pulse or self.has_aplay):
+            ff = subprocess.Popen(
+                ["ffmpeg", "-loglevel", "quiet", "-i", mp3_path, "-f", "s16le", "-ar", str(self.pcm_rate), "-ac", "1", "-"],
+                stdout=subprocess.PIPE,
+            )
+            if self.use_pulse:
+                play_cmd = ["paplay", "--raw", f"--rate={self.pcm_rate}", "--format=s16le", "--channels=1"]
+            else:
+                play_cmd = ["aplay", "-q", "-D", self.alsa_device, "-f", "S16_LE", "-r", str(self.pcm_rate), "-c", "1", "-t", "raw"]
+            ap = subprocess.Popen(play_cmd, stdin=ff.stdout)
+            if ff.stdout:
+                ff.stdout.close()
+            ap.wait(timeout=20)
+            ff.wait(timeout=5)
+            return ap.returncode == 0
+        if self.has_mpg123:
+            subprocess.run(["mpg123", "-q", mp3_path], timeout=20, check=True)
+            return True
+        return False
+
+    def _find_cached_tts(self, filename: str) -> str | None:
+        here = os.path.dirname(os.path.abspath(__file__))
+        candidates = [
+            os.path.expanduser(f"~/.cache/trainerbot_tts/{filename}"),
+            os.path.normpath(os.path.join(here, "..", "..", "config", "tts_cache", filename)),
+        ]
+        for path in candidates:
+            if os.path.exists(path) and os.path.getsize(path) > 0:
+                return path
+        return None
+
     def _play_gtts(self, text: str) -> bool:
-        """Speak text using Google TTS (UK English by default), returning False on offline/failure."""
+        """Play cached or synthesized Google UK TTS clip, returning False when unavailable."""
+        if not (self.has_ffmpeg or self.has_mpg123):
+            return False
+
+        cache_name = _tts_cache_key(text, self.tts_lang, self.tts_tld)
+        cached_path = self._find_cached_tts(cache_name)
+        if cached_path is not None:
+            try:
+                return self._play_mp3_file(cached_path)
+            except Exception as exc:
+                self.get_logger().warn(f"Cached TTS playback failed ({cached_path}): {exc}")
+
+        if self.tts_engine != "gtts" or not HAS_GTTS:
+            return False
+
+        cache_dir = os.path.expanduser("~/.cache/trainerbot_tts")
+        target_path = os.path.join(cache_dir, cache_name)
         tmp_path = None
         try:
-            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
+            os.makedirs(cache_dir, exist_ok=True)
+            with tempfile.NamedTemporaryFile(dir=cache_dir, suffix=".tmp.mp3", delete=False) as tmp:
                 tmp_path = tmp.name
             tts = gTTS(text=text, lang=self.tts_lang, tld=self.tts_tld, slow=False)
             tts.save(tmp_path)
-
-            if self.has_ffmpeg and (self.use_pulse or self.has_aplay):
-                ff = subprocess.Popen(
-                    ["ffmpeg", "-loglevel", "quiet", "-i", tmp_path, "-f", "s16le", "-ar", str(self.pcm_rate), "-ac", "1", "-"],
-                    stdout=subprocess.PIPE,
-                )
-                if self.use_pulse:
-                    play_cmd = ["paplay", "--raw", f"--rate={self.pcm_rate}", "--format=s16le", "--channels=1"]
-                else:
-                    play_cmd = ["aplay", "-q", "-D", self.alsa_device, "-f", "S16_LE", "-r", str(self.pcm_rate), "-c", "1", "-t", "raw"]
-                ap = subprocess.Popen(play_cmd, stdin=ff.stdout)
-                if ff.stdout:
-                    ff.stdout.close()
-                ap.wait(timeout=20)
-                ff.wait(timeout=5)
-                return ap.returncode == 0
-            if self.has_mpg123:
-                subprocess.run(["mpg123", "-q", tmp_path], timeout=20, check=True)
-                return True
+            os.replace(tmp_path, target_path)
+            tmp_path = None
+            return self._play_mp3_file(target_path)
         except Exception as exc:
             self.get_logger().warn(f"gTTS fallback to espeak ({exc})", throttle_duration_sec=5.0)
         finally:

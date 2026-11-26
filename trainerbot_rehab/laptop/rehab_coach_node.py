@@ -14,6 +14,7 @@ import time
 import rclpy
 from ament_index_python.packages import get_package_share_directory
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import Bool, String
 
 
@@ -57,6 +58,7 @@ class RehabCoachNode(Node):
         self.last_warning_time = 0.0
         self.latest_summary: dict = {"detected": False}
         self._startup_announced = False
+        self.gemini_online = False
 
         # Publishers
         self.active_ex_pub = self.create_publisher(String, "/trainerbot/active_exercise", 10)
@@ -70,11 +72,18 @@ class RehabCoachNode(Node):
         self.gemini_prompt_pub = self.create_publisher(String, "/trainerbot/gemini_prompt", 10)
 
         # Subscriptions
+        online_qos = QoSProfile(
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+        )
         self.create_subscription(String, "/trainerbot/selected_game", self._on_selected_game, 10)
         self.create_subscription(String, "/trainerbot/load_exercise", self._on_load_exercise, 10)
         self.create_subscription(String, "/trainerbot/anonymized_landmarks", self._on_landmarks, 10)
         self.create_subscription(String, "/trainerbot/voice_command", self._on_voice_command, 10)
         self.create_subscription(Bool, "/trainerbot/robot_ready", self._on_robot_ready, 10)
+        self.create_subscription(Bool, "/trainerbot/gemini_online", self._on_gemini_online, online_qos)
 
         # Startup fallback timer so Node-RED and Pi servo self-test finish before welcome text
         self.create_timer(10.0, self._startup_fallback_timer)
@@ -83,6 +92,9 @@ class RehabCoachNode(Node):
     # -----------------------------------------------------------------
     # Startup Readiness & Victory Sound
     # -----------------------------------------------------------------
+    def _on_gemini_online(self, msg: Bool):
+        self.gemini_online = bool(msg.data)
+
     def _on_robot_ready(self, msg: Bool):
         if msg.data and not self._startup_announced:
             self._announce_ready()
@@ -158,6 +170,8 @@ class RehabCoachNode(Node):
             self._ask_gemini_routine_suggestion()
         elif cmd == "basic_info":
             self._give_local_basic_info()
+        elif cmd in self.catalog:
+            self._start_exercise(self.catalog[cmd])
 
     # -----------------------------------------------------------------
     # Exercise Lifecycle
@@ -291,6 +305,17 @@ class RehabCoachNode(Node):
         self._speak_and_display(f"{self.active_exercise['name']}: {goal} {form}", use_local_tts=True)
 
     def _ask_gemini_more_details(self):
+        if not self.gemini_online:
+            if self.active_exercise:
+                msg = (
+                    f"{self.active_exercise['name']}: {self.active_exercise.get('goal', '')} "
+                    f"{self.active_exercise.get('faq', {}).get('form', '')}"
+                ).strip()
+            else:
+                msg = "No exercise is active right now. Select an exercise button first to hear form details."
+            self._speak_and_display(msg, use_local_tts=True)
+            return
+
         ex_context = "None selected"
         if self.active_exercise:
             ex_context = (
@@ -306,6 +331,14 @@ class RehabCoachNode(Node):
         self._forward_to_gemini(prompt)
 
     def _ask_gemini_routine_suggestion(self):
+        if not self.gemini_online:
+            self._speak_and_display(
+                "Offline routine suggestion: start with Left Elbow Flexion for 5 slow reps, "
+                "then try Seated Shoulder Raise with your torso upright.",
+                use_local_tts=True,
+            )
+            return
+
         brief_catalog = [
             {"id": ex["id"], "name": ex["name"], "goal": ex["goal"], "target_reps": ex["target_reps"]}
             for ex in self.catalog.values()
