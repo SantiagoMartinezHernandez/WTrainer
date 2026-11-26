@@ -115,7 +115,7 @@ class GeminiLiveNode(Node):
 
         self._outbound_queue: queue.Queue[tuple[str, object]] = queue.Queue(maxsize=300)
         self._stop_event = threading.Event()
-        self._last_context_push = 0.0
+        self._latest_telemetry: dict | None = None
         self._logged_first_audio_in = False
         self._reply_allowed_until = 0.0
         self._last_wake_chime = 0.0
@@ -151,23 +151,21 @@ class GeminiLiveNode(Node):
     def _on_prompt(self, msg: String):
         text = msg.data.strip()
         if text:
+            if self._latest_telemetry is not None:
+                text = f"{text} [ANONYMIZED_TELEMETRY] {json.dumps(self._latest_telemetry)}"
             self._reply_allowed_until = time.monotonic() + 25.0
             self.get_logger().info("Sending dashboard prompt to Gemini Live.")
             self._enqueue("text", text)
 
     def _on_landmarks(self, msg: String):
-        # Throttle anonymized context updates to once every 2.5 seconds
-        now = time.monotonic()
-        if (now - self._last_context_push) < 2.5:
-            return
+        # Cache latest anonymized telemetry locally instead of calling send_client_content
+        # every 2.5s, which would disrupt live realtime audio transcription / VAD.
         try:
             data = json.loads(msg.data)
         except Exception:
             return
-        if not data.get("detected"):
-            return
-        self._last_context_push = now
-        self._enqueue("context", json.dumps(data))
+        if data.get("detected"):
+            self._latest_telemetry = data
 
     def _enqueue(self, kind: str, payload: object):
         try:
@@ -228,15 +226,6 @@ class GeminiLiveNode(Node):
                         parts=[types.Part(text=str(payload))],
                     ),
                     turn_complete=True,
-                )
-            elif kind == "context":
-                # Inject anonymized numeric joint angles silently (turn_complete=False)
-                await session.send_client_content(
-                    turns=types.Content(
-                        role="user",
-                        parts=[types.Part(text=f"[ANONYMIZED_TELEMETRY] {payload}")],
-                    ),
-                    turn_complete=False,
                 )
 
     async def _receive_loop(self, session):

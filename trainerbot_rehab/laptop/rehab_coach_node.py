@@ -218,7 +218,7 @@ class RehabCoachNode(Node):
         if torso_tilt > max_tilt:
             warn_text = warnings_cfg.get("tilt_warning", "Please keep your torso upright and level.")
             self.warning_pub.publish(String(data=f"POSTURE WARNING: {warn_text}"))
-            if (now - self.last_warning_time) > 5.0:
+            if (now - self.last_warning_time) > 8.0:
                 self.last_warning_time = now
                 self.sound_pub.publish(String(data="warning"))
                 self._speak_and_display(warn_text, use_local_tts=True)

@@ -53,7 +53,7 @@ class MicNode(Node):
         self.declare_parameter("alsa_device", "auto")
         self.declare_parameter("sample_rate", 16000)
         self.declare_parameter("chunk_ms", 100)
-        self.declare_parameter("echo_holdoff_sec", 0.35)
+        self.declare_parameter("echo_holdoff_sec", 0.15)
         self.declare_parameter("start_active", False)
 
         requested_dev = str(self.get_parameter("alsa_device").value)
