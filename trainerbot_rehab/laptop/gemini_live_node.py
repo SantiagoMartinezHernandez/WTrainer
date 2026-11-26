@@ -13,6 +13,7 @@ import asyncio
 import json
 import os
 import queue
+import re
 import threading
 import time
 
@@ -37,11 +38,37 @@ SYSTEM_INSTRUCTION = (
     "(2) Keep spoken replies concise (1-3 sentences) and encouraging; "
     "(3) If the user feels pain, fatigue, or says stop, tell them to rest immediately; "
     "(4) You only receive anonymized MediaPipe joint angles and exercise catalog summaries — "
-    "never ask for or store personally identifiable medical data; "
-    "(5) Stay COMPLETELY SILENT unless the user explicitly says the wake word 'turtle' "
-    "(or 'trainerbot'), says an urgent safety word ('stop', 'halt', 'pause', 'pain', 'help'), "
-    "or a dashboard button prompt is sent. Never talk back to background chatter."
+    "never ask for or store personally identifiable medical data."
 )
+
+STOP_WORDS = frozenset({
+    "stop", "halt", "pause", "freeze", "quit", "cancel", "enough", "para", "alto",
+})
+
+WAKE_WORDS = frozenset({
+    "turtle", "turtles", "turtlebot", "tertle", "turtel", "turdle", "tortle",
+    "tirtle", "toddle", "total", "hurdle", "myrtle", "curdle", "girdle",
+    "portal", "trainerbot", "coach",
+})
+
+WAKE_PHRASES = ("turtle bot", "trainer bot")
+
+
+def _tokenize(lower_text: str) -> list[str]:
+    return re.findall(r"[a-z]+", lower_text)
+
+
+def _matches_stop_word(lower_text: str, tokens: list[str]) -> bool:
+    return any(tok in STOP_WORDS for tok in tokens)
+
+
+def _matches_wake_word(lower_text: str, tokens: list[str]) -> bool:
+    if any(phrase in lower_text for phrase in WAKE_PHRASES):
+        return True
+    return any(
+        tok in WAKE_WORDS or tok.startswith(("turt", "tortl"))
+        for tok in tokens
+    )
 
 
 def _load_env_safely():
@@ -78,6 +105,8 @@ class GeminiLiveNode(Node):
         self.coach_msg_pub = self.create_publisher(String, "/trainerbot/coach_message", 10)
         self.voice_cmd_pub = self.create_publisher(String, "/trainerbot/voice_command", 10)
         self.user_transcript_pub = self.create_publisher(String, "/trainerbot/user_transcript", 10)
+        self.sound_pub = self.create_publisher(String, "/trainerbot/play_sound", 10)
+        self.follow_pub = self.create_publisher(Bool, "/trainerbot/follow_enable", 10)
 
         # Subscriptions
         self.create_subscription(UInt8MultiArray, "/trainerbot/audio_in", self._on_audio_in, 50)
@@ -89,6 +118,8 @@ class GeminiLiveNode(Node):
         self._last_context_push = 0.0
         self._logged_first_audio_in = False
         self._reply_allowed_until = 0.0
+        self._last_wake_chime = 0.0
+        self._pending_audio: list[bytes] = []
 
         if not HAS_GENAI:
             self.get_logger().error("`google-genai` SDK not installed. Run: pip install -U google-genai")
@@ -120,7 +151,8 @@ class GeminiLiveNode(Node):
     def _on_prompt(self, msg: String):
         text = msg.data.strip()
         if text:
-            self._reply_allowed_until = time.monotonic() + 20.0
+            self._reply_allowed_until = time.monotonic() + 25.0
+            self.get_logger().info("Sending dashboard prompt to Gemini Live.")
             self._enqueue("text", text)
 
     def _on_landmarks(self, msg: String):
@@ -190,7 +222,13 @@ class GeminiLiveNode(Node):
                     audio=types.Blob(data=payload, mime_type="audio/pcm;rate=16000")
                 )
             elif kind == "text":
-                await session.send_realtime_input(text=str(payload))
+                await session.send_client_content(
+                    turns=types.Content(
+                        role="user",
+                        parts=[types.Part(text=str(payload))],
+                    ),
+                    turn_complete=True,
+                )
             elif kind == "context":
                 # Inject anonymized numeric joint angles silently (turn_complete=False)
                 await session.send_client_content(
@@ -210,47 +248,76 @@ class GeminiLiveNode(Node):
                 continue
 
             if getattr(content, "interrupted", False) is True:
+                self._pending_audio.clear()
                 self.interrupt_pub.publish(Bool(data=True))
 
             in_tx = getattr(content, "input_transcription", None)
             if in_tx and getattr(in_tx, "text", None):
                 transcript = in_tx.text.strip()
                 self.get_logger().info(f"User voice transcript: {transcript}")
-                self.user_transcript_pub.publish(String(data=transcript))
                 lower_tx = transcript.lower()
-                if any(w in lower_tx for w in ("stop", "halt", "pause")):
+                tokens = _tokenize(lower_tx)
+
+                if _matches_stop_word(lower_tx, tokens):
+                    # Priority 1: immediate stop before any wake/reply handling
+                    self._pending_audio.clear()
                     self._reply_allowed_until = 0.0
                     self.interrupt_pub.publish(Bool(data=True))
-                elif any(w in lower_tx for w in ("turtle", "trainerbot", "pain", "help")):
-                    self._reply_allowed_until = time.monotonic() + 20.0
-                self._detect_voice_commands(transcript)
+                    self.follow_pub.publish(Bool(data=False))
+                    self.voice_cmd_pub.publish(String(data="stop"))
+                    self.user_transcript_pub.publish(String(data=f"[STOP] {transcript}"))
+                    self.get_logger().info("Mic PRIORITY STOP triggered!")
+                elif _matches_wake_word(lower_tx, tokens) or any(
+                    w in tokens for w in ("pain", "help")
+                ):
+                    # Priority 2: wake word or pain/help opens Gemini voice window
+                    now = time.monotonic()
+                    self._reply_allowed_until = now + 25.0
+                    if (now - self._last_wake_chime) > 3.0:
+                        self._last_wake_chime = now
+                        self.sound_pub.publish(String(data="wake"))
+                    for buffered in self._pending_audio:
+                        out_msg = UInt8MultiArray()
+                        out_msg.data = list(buffered)
+                        self.audio_out_pub.publish(out_msg)
+                    self._pending_audio.clear()
+                    self.user_transcript_pub.publish(String(data=f"[WAKE] {transcript}"))
+                    self._detect_voice_commands(lower_tx, tokens)
+                else:
+                    self.user_transcript_pub.publish(String(data=transcript))
+                    self._detect_voice_commands(lower_tx, tokens)
 
             reply_allowed = time.monotonic() <= self._reply_allowed_until
 
             # Process ALL parts in model_turn (audio + optional text)
             model_turn = getattr(content, "model_turn", None)
-            if reply_allowed and model_turn and getattr(model_turn, "parts", None):
+            if model_turn and getattr(model_turn, "parts", None):
                 for part in model_turn.parts:
                     inline = getattr(part, "inline_data", None)
                     if inline and getattr(inline, "data", None):
-                        out_msg = UInt8MultiArray()
-                        out_msg.data = list(inline.data)
-                        self.audio_out_pub.publish(out_msg)
+                        if reply_allowed:
+                            out_msg = UInt8MultiArray()
+                            out_msg.data = list(inline.data)
+                            self.audio_out_pub.publish(out_msg)
+                        elif len(self._pending_audio) < 30:
+                            self._pending_audio.append(bytes(inline.data))
 
             out_tx = getattr(content, "output_transcription", None)
             if reply_allowed and out_tx and getattr(out_tx, "text", None):
                 self.coach_msg_pub.publish(String(data=out_tx.text.strip()))
 
-    def _detect_voice_commands(self, transcript: str):
-        text = transcript.lower().strip()
+            if getattr(content, "turn_complete", False) is True:
+                self._pending_audio.clear()
+
+    def _detect_voice_commands(self, lower_text: str, tokens: list[str]):
         cmd = None
-        if any(word in text for word in ("stop", "halt", "cancel", "pause")):
+        if _matches_stop_word(lower_text, tokens):
             cmd = "stop"
-        elif "more details" in text or "explain more" in text:
+        elif "more details" in lower_text or "explain more" in lower_text:
             cmd = "more_details"
-        elif "suggest" in text and "routine" in text:
+        elif "suggest" in lower_text and "routine" in lower_text:
             cmd = "suggest_routine"
-        elif "start" in text or "begin" in text:
+        elif any(w in tokens for w in ("start", "begin")):
             cmd = "start"
         if cmd:
             self.get_logger().info(f"Voice command detected -> /trainerbot/voice_command: {cmd}")

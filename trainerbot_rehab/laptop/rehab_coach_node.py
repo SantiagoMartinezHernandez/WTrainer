@@ -189,6 +189,7 @@ class RehabCoachNode(Node):
     def _stop_exercise(self, message: str):
         self.active_exercise = None
         self.rep_phase = "REST"
+        self.follow_pub.publish(Bool(data=False))
         self.interrupt_pub.publish(Bool(data=True))
         self.sound_pub.publish(String(data="stop"))
         self.rep_status_pub.publish(String(data="Stopped"))
