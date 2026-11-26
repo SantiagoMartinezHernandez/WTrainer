@@ -6,6 +6,7 @@ chunks to `/trainerbot/audio_in` (`UInt8MultiArray`). Automatically gates out
 audio while `/trainerbot/speaker_busy` is True to prevent acoustic self-echo.
 """
 
+import re
 import shutil
 import subprocess
 import threading
@@ -16,19 +17,47 @@ from rclpy.node import Node
 from std_msgs.msg import Bool, UInt8MultiArray
 
 
+def _resolve_alsa_device(requested: str) -> str:
+    """Resolve 'auto' to the INMP441 I2S capture card via `arecord -l`."""
+    req = requested.strip()
+    if req and req.lower() != "auto":
+        return req
+    try:
+        res = subprocess.run(
+            ["arecord", "-l"], capture_output=True, text=True, timeout=3
+        )
+        first_card = None
+        for line in res.stdout.splitlines():
+            m = re.match(r"^card\s+(\d+):", line, re.IGNORECASE)
+            if not m:
+                continue
+            card_num = m.group(1)
+            if first_card is None:
+                first_card = f"plughw:{card_num},0"
+            lower = line.lower()
+            if any(k in lower for k in ("googlevoicehat", "voicehat", "sndrpigooglevoi", "i2s")):
+                return f"plughw:{card_num},0"
+        if first_card is not None:
+            return first_card
+    except Exception:
+        pass
+    return "plughw:1,0"
+
+
 class MicNode(Node):
     """Streams INMP441 I2S microphone audio chunks over ROS 2."""
 
     def __init__(self):
         super().__init__("mic_node")
 
-        self.declare_parameter("alsa_device", "plughw:0,0")
+        self.declare_parameter("alsa_device", "auto")
         self.declare_parameter("sample_rate", 16000)
         self.declare_parameter("chunk_ms", 100)
         self.declare_parameter("echo_holdoff_sec", 0.35)
         self.declare_parameter("start_active", True)
 
-        self.alsa_device = str(self.get_parameter("alsa_device").value)
+        requested_dev = str(self.get_parameter("alsa_device").value)
+        self.alsa_device = _resolve_alsa_device(requested_dev)
         self.sample_rate = int(self.get_parameter("sample_rate").value)
         self.chunk_ms = int(self.get_parameter("chunk_ms").value)
         self.echo_holdoff_sec = float(self.get_parameter("echo_holdoff_sec").value)
@@ -40,6 +69,7 @@ class MicNode(Node):
         self.last_speaker_busy_time = 0.0
         self._stop_event = threading.Event()
         self._arecord_proc = None
+        self._logged_first_chunk = False
 
         self.audio_pub = self.create_publisher(UInt8MultiArray, "/trainerbot/audio_in", 20)
         self.create_subscription(Bool, "/trainerbot/speaker_busy", self._on_speaker_busy, 10)
@@ -76,11 +106,24 @@ class MicNode(Node):
                 while not self._stop_event.is_set():
                     data = self._arecord_proc.stdout.read(self.chunk_bytes)
                     if not data:
+                        err_text = ""
+                        if self._arecord_proc.stderr is not None:
+                            err_text = self._arecord_proc.stderr.read().decode("utf-8", errors="replace").strip()
+                        if err_text:
+                            self.get_logger().warn(
+                                f"arecord exited on {self.alsa_device}: {err_text}",
+                                throttle_duration_sec=5.0,
+                            )
                         break
                     # Gate during playback + short echo tail
                     in_echo_tail = (time.monotonic() - self.last_speaker_busy_time) < self.echo_holdoff_sec
                     if not self.mic_active or self.speaker_busy or in_echo_tail:
                         continue
+                    if not self._logged_first_chunk:
+                        self._logged_first_chunk = True
+                        self.get_logger().info(
+                            f"Streaming microphone audio ({self.alsa_device}) to /trainerbot/audio_in."
+                        )
                     msg = UInt8MultiArray()
                     msg.data = list(data)
                     self.audio_pub.publish(msg)

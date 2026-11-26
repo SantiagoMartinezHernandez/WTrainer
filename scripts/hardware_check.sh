@@ -31,16 +31,18 @@ echo "[3/5] Camera Tilt Servo Test (GPIO ${GPIO_PIN})"
 python3 - <<PYEOF
 pin = int("${GPIO_PIN}")
 try:
-    from gpiozero import AngularServo
+    from gpiozero import AngularServo, Device
     import time
-    print(f"  Testing gpiozero AngularServo on GPIO {pin}...")
-    s = AngularServo(pin, min_angle=-45.0, max_angle=45.0, min_pulse_width=0.0005, max_pulse_width=0.0025)
-    for angle in (0.0, 15.0, -15.0, 0.0):
+    print(f"  Pin factory: {Device.pin_factory}")
+    print(f"  Testing gpiozero AngularServo on GPIO {pin} (1.0-2.0 ms pulses)...")
+    s = AngularServo(pin, min_angle=-45.0, max_angle=45.0, min_pulse_width=0.001, max_pulse_width=0.002)
+    for angle in (0.0, 40.0, -40.0, 0.0):
         print(f"    -> Moving to {angle:+.0f} deg")
         s.angle = angle
-        time.sleep(0.5)
+        time.sleep(1.0)
     s.close()
-    print("  [OK] Servo test succeeded via gpiozero!")
+    print("  [OK] Servo test commands sent via gpiozero!")
+    print("  If it buzzes without moving: check 5V power supply, shared GND, and mechanical binding.")
 except Exception as e:
     print(f"  [FAIL] gpiozero servo failed: {e}")
     print("  Tip: On Ubuntu 24.04 Pi, run: sudo apt install -y python3-lgpio")

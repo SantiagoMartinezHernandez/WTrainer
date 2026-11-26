@@ -22,7 +22,7 @@ from launch_ros.actions import Node
 def generate_launch_description():
     servo_type_arg = DeclareLaunchArgument("servo_type", default_value="pwm")
     gpio_pin_arg = DeclareLaunchArgument("gpio_pin", default_value="12")
-    alsa_mic_arg = DeclareLaunchArgument("alsa_mic", default_value="plughw:0,0")
+    alsa_mic_arg = DeclareLaunchArgument("alsa_mic", default_value="auto")
     alsa_speaker_arg = DeclareLaunchArgument("alsa_speaker", default_value="default")
     enable_speaker_arg = DeclareLaunchArgument("enable_speaker", default_value="false")
     speaker_mode_arg = DeclareLaunchArgument("speaker_mode", default_value="alsa")

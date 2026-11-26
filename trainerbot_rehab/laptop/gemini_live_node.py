@@ -83,6 +83,7 @@ class GeminiLiveNode(Node):
         self._outbound_queue: queue.Queue[tuple[str, object]] = queue.Queue(maxsize=300)
         self._stop_event = threading.Event()
         self._last_context_push = 0.0
+        self._logged_first_audio_in = False
 
         if not HAS_GENAI:
             self.get_logger().error("`google-genai` SDK not installed. Run: pip install -U google-genai")
@@ -104,6 +105,11 @@ class GeminiLiveNode(Node):
     # -----------------------------------------------------------------
     def _on_audio_in(self, msg: UInt8MultiArray):
         if msg.data:
+            if not self._logged_first_audio_in:
+                self._logged_first_audio_in = True
+                self.get_logger().info(
+                    "Receiving Pi microphone audio (/trainerbot/audio_in) -> streaming to Gemini Live."
+                )
             self._enqueue("audio", bytes(msg.data))
 
     def _on_prompt(self, msg: String):
@@ -212,6 +218,7 @@ class GeminiLiveNode(Node):
 
             in_tx = getattr(content, "input_transcription", None)
             if in_tx and getattr(in_tx, "text", None):
+                self.get_logger().info(f"User voice transcript: {in_tx.text.strip()}")
                 self._detect_voice_commands(in_tx.text)
 
             out_tx = getattr(content, "output_transcription", None)
@@ -220,14 +227,18 @@ class GeminiLiveNode(Node):
 
     def _detect_voice_commands(self, transcript: str):
         text = transcript.lower().strip()
+        cmd = None
         if any(word in text for word in ("stop", "halt", "cancel", "pause")):
-            self.voice_cmd_pub.publish(String(data="stop"))
+            cmd = "stop"
         elif "more details" in text or "explain more" in text:
-            self.voice_cmd_pub.publish(String(data="more_details"))
+            cmd = "more_details"
         elif "suggest" in text and "routine" in text:
-            self.voice_cmd_pub.publish(String(data="suggest_routine"))
+            cmd = "suggest_routine"
         elif "start" in text or "begin" in text:
-            self.voice_cmd_pub.publish(String(data="start"))
+            cmd = "start"
+        if cmd:
+            self.get_logger().info(f"Voice command detected -> /trainerbot/voice_command: {cmd}")
+            self.voice_cmd_pub.publish(String(data=cmd))
 
     def destroy_node(self):
         self._stop_event.set()
